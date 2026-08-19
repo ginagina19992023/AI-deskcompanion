@@ -1,0 +1,773 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; object-src 'none'; base-uri 'none'">
+<title>Pet</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* The pet's UI "skin" tone (bubbles, ring buttons, badge cards) as an
+     R,G,B triplet so every usage can keep its own alpha via
+     rgba(var(--skin-rgb), X). Overridden live from the dashboard's colour
+     picker (see applySkinColor in renderer.js) -- this is just the
+     fallback before cfg.theme.skinColor loads. Declared on html ONLY (not
+     `html, body`) and left to inherit down to body and everything else:
+     the earlier version set it directly on both, and since an element's
+     own specified value always wins over an inherited one regardless of
+     the ancestor's specificity, updating document.documentElement's
+     inline style via JS had zero visible effect -- every real usage lives
+     under <body>, which just kept using its own separate copy of the
+     original hardcoded value forever. */
+  html {
+    --skin-rgb: 250, 240, 228;
+  }
+  /* left/bottom is the default (no bubble) anchor; both get
+     overridden inline by JS whenever the window grows to make room for a
+     bubble (see positionCanvas() in renderer.js) -- the
+     sprite must stay screen-anchored on the *opposite* edge from whichever
+     direction the window just grew. */
+  canvas { display: block; position: fixed; left: 0; bottom: 0; }
+  /* Bubbles live in real DOM, not canvas -- they need to occupy screen
+     space *outside* the sprite's own small canvas (see pet:bubble-space in
+     main.js), which only works with an independently-positioned element. */
+  #bubbleArea {
+    position: fixed;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    box-sizing: border-box;
+    padding: 4px;
+    pointer-events: none;
+    overflow: hidden;
+    font-family: "Microsoft YaHei", sans-serif;
+    /* Never left unset -- an unset font-size inherits the browser default
+       (~16px), which at 1.5x DPI on this small a window reads as huge.
+       JS overrides this proportionally to cfg.scale (see
+       updateBubbleFontSize in renderer.js); this is just a sane fallback. */
+    font-size: 11px;
+  }
+  @keyframes bubble-pulse {
+    0%, 33% { opacity: 0.95; }
+    34%, 100% { opacity: 0.3; }
+  }
+  .bubble-attention-dot {
+    animation: bubble-pulse 780ms infinite;
+  }
+  .bubble-attention-dot:nth-child(2) { animation-delay: 260ms; }
+  .bubble-attention-dot:nth-child(3) { animation-delay: 520ms; }
+  .bubble-card {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: rgba(var(--skin-rgb),0.95);
+    border: 1px solid rgba(120, 24, 32, 0.7);
+    color: rgba(40, 16, 20, 0.92);
+    line-height: 1.3;
+  }
+  .bubble-dot { width: 0.7em; height: 0.7em; border-radius: 50%; flex: none; }
+  .bubble-emoji { flex: none; line-height: 1; font-size: 1.15em; }
+  /* Two-tier status card: bold task title on top (what you asked for),
+     lighter live-detail line underneath (what Claude's doing right now in
+     service of it) -- matches the Codex-pet reference card. Falls back to
+     the plain single-line .bubble-text layout when there's no taskTitle
+     yet (e.g. right after the hooks are freshly installed, before the
+     first UserPromptSubmit has fired). */
+  .bubble-status-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+  .bubble-title {
+    font-weight: 700;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bubble-detail {
+    opacity: 0.72;
+    font-size: 0.88em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A model reply or long tool detail could in principle be arbitrarily
+     long -- line-clamping is a hard ceiling on how tall a single bubble is
+     allowed to grow regardless of content length, independent of the
+     JS-side character cap (belt and suspenders: this is what actually
+     bounds the window-growth request, not just the text truncation). */
+  .bubble-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Screen-tip asides and chat replies both use this. Deliberately NOT
+     -webkit-line-clamp -- that was tried (4 lines, then 8) and measured
+     live to sometimes hard-clip mid-character with NO ellipsis at all
+     (confirmed via diagnostic logging: scrollHeight > clientHeight but no
+     "…" rendered), especially once multiple bubbles stack in #bubbleArea
+     at once. The JS-side cap in capBubbleText (plain string slicing, a
+     single appended "…") is what actually bounds both the text length and
+     therefore the rendered height now -- no CSS truncation feature
+     involved, so nothing to silently fail to render. The box just grows to
+     whatever height that bounded text naturally needs; window growth
+     already measures and follows that correctly (see updateBubbles). */
+  .bubble-tip {
+    border-radius: 10px;
+    padding: 6px 10px;
+    background: rgba(230, 237, 245, 0.95);
+    border: 1px solid rgba(46, 68, 94, 0.65);
+    color: rgba(30, 44, 58, 0.88);
+    line-height: 1.3;
+    white-space: pre-line;
+  }
+  /* Hovering the context-usage badge (see drawContextRing) -- a small,
+     glanceable bar chart, deliberately no numbers/text: three rows, each
+     bar's *filled* length is how much of that window is still available.
+     Same rgba(205,43,60,...) red family the badge itself uses. */
+  .bubble-usage-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    border-radius: 10px;
+    padding: 7px 9px;
+    background: rgba(var(--skin-rgb),0.97);
+    border: 1px solid rgba(120, 24, 32, 0.4);
+    box-sizing: border-box;
+    width: 100%;
+  }
+  .bubble-usage-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .bubble-usage-icon { font-size: 0.85em; flex: none; line-height: 1; }
+  .bubble-usage-track { flex: 1; min-width: 12px; height: 6px; border-radius: 3px; background: rgba(120, 24, 32, 0.1); overflow: hidden; }
+  .bubble-usage-fill { height: 100%; border-radius: 3px; background: rgba(174, 34, 49, 0.9); }
+  .bubble-usage-pct { flex: none; font-size: 0.8em; font-variant-numeric: tabular-nums; color: rgba(40, 16, 20, 0.75); }
+  /* Claude is blocked on a real permission prompt in the terminal right
+     now -- this is the "click here instead of switching windows" shortcut
+     (see pet:permission-request), so it needs to read as more urgent/
+     actionable than a passing status card, not just another rounded pill. */
+  .bubble-permission-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    border-radius: 10px;
+    padding: 7px 10px;
+    background: rgba(255, 247, 224, 0.97);
+    border: 1.5px solid rgba(196, 138, 46, 0.85);
+    color: rgba(40, 16, 20, 0.92);
+    line-height: 1.3;
+  }
+  .bubble-permission-text { font-size: 0.95em; }
+  .bubble-permission-actions { display: flex; gap: 6px; }
+  .bubble-permission-actions button {
+    flex: 1;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 0;
+    font-size: 0.85em;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .bubble-permission-allow { background: rgba(74, 140, 92, 0.92); color: #fff; }
+  .bubble-permission-allow:hover { background: rgba(60, 122, 78, 0.95); }
+  .bubble-permission-deny { background: rgba(196, 42, 42, 0.88); color: #fff; }
+  .bubble-permission-deny:hover { background: rgba(168, 32, 32, 0.92); }
+  /* A real, persistent chat panel -- message history + an input that stays
+     open across multiple exchanges, not a single line that vanishes after
+     one message. Pinned to the top of the window (the window grows both
+     wider and taller to host it -- see openChatPanel in main.js), with the
+     sprite's own canvas repositioned to sit above it via #stage.chat-mode. */
+  #chatPanel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    flex-direction: column;
+    box-sizing: border-box;
+    font-family: "Microsoft YaHei", sans-serif;
+    background: rgba(var(--skin-rgb),0.97);
+    border: 1px solid rgba(120, 24, 32, 0.55);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  #chatPanelHeader {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(120, 24, 32, 0.3);
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(40, 16, 20, 0.9);
+  }
+  #chatPanelHeaderBtns { display: flex; align-items: center; gap: 2px; }
+  #chatPanelHeaderBtns button {
+    border: none;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.6);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 3px 5px;
+    border-radius: 4px;
+  }
+  #chatPanelHeaderBtns button:hover { color: rgba(120, 24, 32, 0.9); background: rgba(120, 24, 32, 0.08); }
+  #chatPanelClose { font-size: 14px !important; }
+  #chatMessages {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: rgba(40, 16, 20, 0.95);
+  }
+  .chat-msg {
+    max-width: 84%;
+    padding: 6px 10px;
+    border-radius: 12px;
+    white-space: pre-line;
+    word-break: break-word;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: rgba(120, 24, 32, 0.14);
+  }
+  .chat-msg.pet {
+    align-self: flex-start;
+    background: rgba(120, 24, 32, 0.06);
+  }
+  .chat-msg.pending { opacity: 0.6; }
+  #chatConvList {
+    display: none;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 6px 8px;
+  }
+  .conv-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .conv-item:hover { background: rgba(120, 24, 32, 0.08); }
+  .conv-item.active { background: rgba(120, 24, 32, 0.14); }
+  .conv-item-text { flex: 1; min-width: 0; }
+  .conv-item-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: rgba(40, 16, 20, 0.92);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conv-item-sub {
+    font-size: 11px;
+    color: rgba(40, 16, 20, 0.55);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conv-item-del {
+    border: none;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.4);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 5px;
+    flex: 0 0 auto;
+  }
+  .conv-item-del:hover { color: rgba(120, 24, 32, 0.9); }
+  .conv-empty { text-align: center; font-size: 12px; color: rgba(40, 16, 20, 0.5); padding: 20px 0; }
+  #chatInputRow {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 1px solid rgba(120, 24, 32, 0.3);
+  }
+  #chatPanelInput {
+    flex: 1;
+    box-sizing: border-box;
+    border: 1px solid rgba(120, 24, 32, 0.35);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-family: inherit;
+    font-size: 12.5px;
+    background: rgba(255, 255, 255, 0.7);
+    color: rgba(40, 16, 20, 0.95);
+    outline: none;
+  }
+  #chatPanelInput:disabled { opacity: 0.55; cursor: not-allowed; }
+  #chatPanelSend {
+    border: 1px solid rgba(120, 24, 32, 0.45);
+    border-radius: 8px;
+    background: rgba(120, 24, 32, 0.1);
+    color: rgba(40, 16, 20, 0.9);
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  #chatPanelSend:hover { background: rgba(120, 24, 32, 0.2); }
+  #chatPanelSend:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(120, 24, 32, 0.1); }
+  #chatPanelScreenshot {
+    flex: 0 0 auto;
+    border: 1px solid rgba(120, 24, 32, 0.35);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    padding: 6px 8px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  #chatPanelScreenshot:hover { background: rgba(120, 24, 32, 0.12); }
+  #chatPanelScreenshot:disabled { opacity: 0.5; cursor: not-allowed; }
+  #chatScreenshotChip {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 10px 6px;
+    padding: 5px 9px;
+    border-radius: 8px;
+    background: rgba(196, 138, 46, 0.15);
+    border: 1px solid rgba(196, 138, 46, 0.4);
+    font-size: 11px;
+    color: rgba(40, 16, 20, 0.85);
+  }
+  #chatScreenshotChip button {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 11px;
+    color: rgba(120, 24, 32, 0.8);
+    margin-left: auto;
+    padding: 0 2px;
+  }
+  .history-item-ask {
+    margin-top: 4px;
+    font-size: 10.5px;
+    border: 1px solid rgba(120, 24, 32, 0.3);
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(120, 24, 32, 0.85);
+    padding: 2px 7px;
+    cursor: pointer;
+  }
+  .history-item-ask:hover { background: rgba(120, 24, 32, 0.1); }
+
+  /* Todo + report panel -- same growable-window pattern as the chat panel
+     (see openTodoPanel in main.js), a real list you can add/check/delete
+     items in and a persistent report view, not a native menu you can only
+     glance at. */
+  #todoPanel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    flex-direction: column;
+    box-sizing: border-box;
+    font-family: "Microsoft YaHei", sans-serif;
+    background: rgba(var(--skin-rgb),0.97);
+    border: 1px solid rgba(120, 24, 32, 0.55);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  #todoPanelHeader {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 0;
+    border-bottom: 1px solid rgba(120, 24, 32, 0.3);
+  }
+  #todoTabs { display: flex; gap: 2px; }
+  .todo-tab {
+    border: none;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.55);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .todo-tab.active { color: rgba(120, 24, 32, 0.95); border-bottom-color: rgba(120, 24, 32, 0.7); }
+  #todoPanelClose {
+    border: none;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.6);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  #todoPanelClose:hover { color: rgba(120, 24, 32, 0.9); }
+  #todoAddRow {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(120, 24, 32, 0.2);
+  }
+  #todoAddInput {
+    flex: 1;
+    box-sizing: border-box;
+    border: 1px solid rgba(120, 24, 32, 0.35);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-family: inherit;
+    font-size: 12.5px;
+    background: rgba(255, 255, 255, 0.7);
+    color: rgba(40, 16, 20, 0.95);
+    outline: none;
+  }
+  #todoAddBtn {
+    border: 1px solid rgba(120, 24, 32, 0.45);
+    border-radius: 8px;
+    background: rgba(120, 24, 32, 0.1);
+    color: rgba(40, 16, 20, 0.9);
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  #todoAddBtn:hover { background: rgba(120, 24, 32, 0.2); }
+  #todoList {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 6px 8px;
+    font-size: 12.5px;
+    color: rgba(40, 16, 20, 0.95);
+  }
+  #tasksList {
+    display: none;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 6px 8px;
+  }
+  .task-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 4px;
+  }
+  .task-item:hover { background: rgba(120, 24, 32, 0.08); }
+  .task-item-title { font-size: 12.5px; font-weight: 600; color: rgba(40, 16, 20, 0.92); }
+  .task-item-detail { font-size: 11px; color: rgba(40, 16, 20, 0.6); }
+  .todo-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 4px;
+    border-bottom: 1px solid rgba(120, 24, 32, 0.1);
+  }
+  .todo-item-check {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(120, 24, 32, 0.5);
+    cursor: pointer;
+  }
+  .todo-item-check:hover { background: rgba(120, 24, 32, 0.15); }
+  .todo-item-textwrap { flex: 1; min-width: 0; }
+  .todo-item-text { min-width: 0; word-break: break-word; }
+  .todo-item-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+  .todo-tag-chip {
+    font-size: 9.5px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(120, 24, 32, 0.08);
+    color: rgba(120, 24, 32, 0.75);
+  }
+  .todo-due-chip {
+    font-size: 9.5px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(74, 127, 196, 0.12);
+    color: rgba(74, 127, 196, 0.9);
+  }
+  .todo-due-chip.overdue { background: rgba(178, 44, 56, 0.15); color: rgba(178, 44, 56, 0.95); }
+  .todo-item-del {
+    flex: 0 0 auto;
+    border: none;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.4);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 5px;
+  }
+  .todo-item-del:hover { color: rgba(120, 24, 32, 0.9); }
+  .todo-item-edit {
+    flex: 0 0 auto;
+    border: none;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.4);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 5px;
+  }
+  .todo-item-edit:hover { color: rgba(120, 24, 32, 0.9); }
+  .todo-item-editing { align-items: center; }
+  .todo-edit-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 11.5px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(120, 24, 32, 0.3);
+    background: rgba(255, 255, 255, 0.7);
+  }
+  #reportBody {
+    display: none;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 10px;
+  }
+  #reportButtons { display: flex; gap: 6px; margin-bottom: 10px; }
+  .report-btn {
+    border: 1px solid rgba(120, 24, 32, 0.45);
+    border-radius: 8px;
+    background: rgba(120, 24, 32, 0.1);
+    color: rgba(40, 16, 20, 0.9);
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .report-btn:hover { background: rgba(120, 24, 32, 0.2); }
+  #reportText { font-size: 12.5px; line-height: 1.6; color: rgba(40, 16, 20, 0.92); white-space: pre-line; }
+  #historyBody {
+    display: none;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 10px;
+    flex-direction: column;
+  }
+  #historyNav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  #historyNav button {
+    border: 1px solid rgba(120, 24, 32, 0.35);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.5);
+    color: rgba(40, 16, 20, 0.85);
+    font-size: 13px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+  }
+  #historyDateLabel { font-size: 12.5px; font-weight: 600; color: rgba(40, 16, 20, 0.9); min-width: 84px; text-align: center; }
+  #historySummaryText { font-size: 12px; line-height: 1.6; color: rgba(40, 16, 20, 0.9); white-space: pre-line; margin: 8px 0; }
+  #historySummaryList { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .summary-item { padding: 6px 8px; border-radius: 8px; background: rgba(120, 24, 32, 0.04); }
+  .summary-item-time { font-size: 10px; color: rgba(40, 16, 20, 0.5); margin-bottom: 2px; }
+  .summary-item-text { font-size: 11.5px; color: rgba(40, 16, 20, 0.88); line-height: 1.4; white-space: pre-line; }
+  #historyFilterBar { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+  #historyFilterText {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 11.5px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(120, 24, 32, 0.25);
+    background: rgba(255, 255, 255, 0.6);
+    color: rgba(40, 16, 20, 0.9);
+  }
+  #historySourceChips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .history-source-chip {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(120, 24, 32, 0.3);
+    background: rgba(255, 255, 255, 0.4);
+    color: rgba(40, 16, 20, 0.5);
+    cursor: pointer;
+  }
+  .history-source-chip.active { background: rgba(120, 24, 32, 0.75); color: #fff; border-color: rgba(120, 24, 32, 0.75); }
+  .hint { font-size: 10px; color: rgba(40, 16, 20, 0.5); }
+  #historyList { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .history-item { display: flex; gap: 8px; padding: 6px; border-radius: 8px; background: rgba(120, 24, 32, 0.04); }
+  .history-item img { width: 52px; height: 52px; object-fit: cover; border-radius: 6px; flex: 0 0 auto; }
+  .history-item-text { flex: 1; min-width: 0; }
+  .history-item-time { font-size: 10px; color: rgba(40, 16, 20, 0.5); }
+  .history-item-desc { font-size: 11.5px; color: rgba(40, 16, 20, 0.88); line-height: 1.4; }
+
+  /* Hover toolbar ring -- buttons are positioned individually via inline
+     left/top from renderer.js (trigonometry against the grown window's
+     centre). Split into two overlapping layers at the same coordinates:
+     #ringGooLayer holds plain filled circles/capsules that get blurred and
+     re-sharpened (the classic SVG "goo" filter) so neighbouring blobs melt
+     into each other into one continuous chain -- matching the reference
+     image's connected-bubble look, not separate circles joined by a thin
+     stick. #ringIconLayer sits on top, unfiltered, carrying the actual
+     emoji icons and click targets so they stay crisp instead of also
+     getting blurred by the goo filter. */
+  #toolbarRing {
+    position: fixed;
+    inset: 0;
+    display: none;
+  }
+  #ringGooLayer {
+    position: absolute;
+    inset: 0;
+    filter: url(#ringGoo) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.28));
+    pointer-events: none;
+  }
+  #ringIconLayer {
+    position: absolute;
+    inset: 0;
+  }
+  .ring-blob {
+    position: absolute;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(var(--skin-rgb),0.98);
+    transform: translate(-50%, -50%);
+  }
+  .ring-blob.active { background: rgba(196, 68, 24, 0.92); }
+  /* Wide relative to the blobs (not a thin wire) and overlapping their
+     edges -- that overlap is what the goo filter fuses into a seamless
+     join instead of a dumbbell shape. */
+  .ring-link {
+    position: absolute;
+    height: 26px;
+    border-radius: 13px;
+    background: rgba(var(--skin-rgb),0.98);
+  }
+  .ring-btn {
+    position: absolute;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    background: transparent;
+    color: rgba(40, 16, 20, 0.9);
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    transition: transform 0.15s;
+  }
+  .ring-btn:hover { transform: translate(-50%, -50%) scale(1.15); }
+  .ring-btn.active { color: #fff; }
+  .ring-btn-label {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 3px;
+    font-size: 9px;
+    white-space: nowrap;
+    color: rgba(40, 16, 20, 0.85);
+    background: rgba(var(--skin-rgb),0.92);
+    padding: 1px 5px;
+    border-radius: 5px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .ring-btn:hover .ring-btn-label { opacity: 1; }
+</style>
+<canvas id="stage"></canvas>
+<svg width="0" height="0" style="position: absolute">
+  <filter id="ringGoo">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
+    <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="goo" />
+    <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+  </filter>
+</svg>
+<div id="toolbarRing">
+  <div id="ringGooLayer"></div>
+  <div id="ringIconLayer"></div>
+</div>
+<div id="bubbleArea"></div>
+<div id="chatPanel">
+  <div id="chatPanelHeader">
+    <span>跟他聊天</span>
+    <div id="chatPanelHeaderBtns">
+      <button id="chatPanelHist" title="历史对话" aria-label="历史对话">🕘</button>
+      <button id="chatPanelNew" title="新对话" aria-label="新对话">✚</button>
+      <button id="chatPanelClose" aria-label="关闭">✕</button>
+    </div>
+  </div>
+  <div id="chatMessages"></div>
+  <div id="chatConvList"></div>
+  <div id="chatScreenshotChip" style="display:none;">📷 已附上截图，问点什么吧 <button id="chatScreenshotChipClear" aria-label="移除截图">✕</button></div>
+  <div id="chatInputRow">
+    <button id="chatPanelScreenshot" title="截屏问他" aria-label="截屏问他">📸</button>
+    <input id="chatPanelInput" type="text" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false">
+    <button id="chatPanelSend">发送</button>
+  </div>
+</div>
+<div id="todoPanel">
+  <div id="todoPanelHeader">
+    <div id="todoTabs">
+      <button class="todo-tab active" id="todoTabTodo" data-tab="todo">待办</button>
+      <button class="todo-tab" id="todoTabTasks" data-tab="tasks">任务</button>
+      <button class="todo-tab" id="todoTabReport" data-tab="report">报告</button>
+      <button class="todo-tab" id="todoTabHistory" data-tab="history">记录</button>
+    </div>
+    <button id="todoPanelClose" aria-label="关闭">✕</button>
+  </div>
+  <div id="todoAddRow">
+    <input id="todoAddInput" type="text" placeholder="添加一条待办… #标签 @明天" autocomplete="off" spellcheck="false" title="支持 #标签（可多个）和 @明天/@今天/@8-10 这样的截止日期">
+    <button id="todoAddBtn">添加</button>
+  </div>
+  <div id="todoList"></div>
+  <div id="tasksList"></div>
+  <div id="reportBody">
+    <div id="reportButtons">
+      <button class="report-btn" id="reportDayBtn">今日报告</button>
+      <button class="report-btn" id="reportWeekBtn">本周报告</button>
+    </div>
+    <div id="reportText">点上面的按钮看看今天/本周做了什么。</div>
+    <div id="reportPastList"></div>
+  </div>
+  <div id="historyBody">
+    <div id="historyNav">
+      <button id="historyPrevBtn" aria-label="前一天">‹</button>
+      <span id="historyDateLabel"></span>
+      <button id="historyNextBtn" aria-label="后一天">›</button>
+    </div>
+    <button class="report-btn" id="historySummaryBtn">生成这天的总结</button>
+    <div id="historySummaryText"></div>
+    <div id="historySummaryList"></div>
+    <div id="historyFilterBar">
+      <input type="text" id="historyFilterText" placeholder="搜索这天的记录…">
+      <div id="historySourceChips">
+        <button type="button" class="history-source-chip active" data-source="screenTip">提示</button>
+        <button type="button" class="history-source-chip active" data-source="workSupervision">监督</button>
+        <button type="button" class="history-source-chip active" data-source="manual">截屏</button>
+        <button type="button" class="history-source-chip active" data-source="chat">问答</button>
+      </div>
+      <span id="historyFilterCount" class="hint"></span>
+    </div>
+    <div id="historyList"></div>
+  </div>
+</div>
+<script type="module" src="./renderer.js"></script>

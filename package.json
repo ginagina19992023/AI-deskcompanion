@@ -1,0 +1,19 @@
+{
+  "name": "sebastian-desktop-pet",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "preview": "python -m http.server 8731 --bind 127.0.0.1",
+    "sync-atlas": "node tools/sync-atlas.js"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^5.5.0"
+  }
+}

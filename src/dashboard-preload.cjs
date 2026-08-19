@@ -1,0 +1,52 @@
+// CommonJS on purpose, same reason as the pet window's preload.cjs --
+// Electron preload scripts aren't ES modules even when the package is
+// "type": "module".
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('dash', {
+  getData: () => ipcRenderer.invoke('dashboard:get-data'),
+  getModels: () => ipcRenderer.invoke('dashboard:models'),
+  getReport: (kind) => ipcRenderer.invoke('dashboard:report', kind),
+  getReports: () => ipcRenderer.invoke('dashboard:get-reports'),
+  deleteReport: (id) => ipcRenderer.invoke('dashboard:delete-report', id),
+  getHistory: (day) => ipcRenderer.invoke('dashboard:screentip-history', day),
+  getSummary: (day) => ipcRenderer.invoke('dashboard:screentip-summary', day),
+  getFocusHeatmap: (days) => ipcRenderer.invoke('dashboard:focus-heatmap', { days }),
+  getClaudeUsage: () => ipcRenderer.invoke('dashboard:claude-usage'),
+  getPomodoroList: (limit) => ipcRenderer.invoke('dashboard:pomodoro-list', { limit }),
+
+  // Reuses the exact same channels the pet window's own preload sends on --
+  // the main-process handlers don't care which window the request came
+  // from, they just mutate shared state and persist. The dashboard simply
+  // re-fetches getData() itself afterward instead of relying on a push.
+  setSetting: (field, value) => ipcRenderer.send('pet:settings-set', { field, value }),
+  previewOpacity: (value) => ipcRenderer.send('dashboard:preview-opacity', value),
+  setShortcut: (key, accelerator) => ipcRenderer.invoke('dashboard:set-shortcut', { key, accelerator }),
+  pickSoundFile: (slot) => ipcRenderer.invoke('dashboard:pick-sound-file', slot),
+  clearSoundFile: (slot) => ipcRenderer.invoke('dashboard:clear-sound-file', slot),
+  pickPetPackFolder: () => ipcRenderer.invoke('dashboard:pick-pet-pack-folder'),
+  commitPetPack: (payload) => ipcRenderer.invoke('dashboard:commit-pet-pack', payload),
+  setActivePet: (id) => ipcRenderer.invoke('dashboard:set-active-pet', id),
+  deletePetPack: (id) => ipcRenderer.invoke('dashboard:delete-pet-pack', id),
+  setActionMapping: (status, row) => ipcRenderer.invoke('dashboard:set-action-mapping', { status, row }),
+  getMemory: () => ipcRenderer.invoke('dashboard:get-memory'),
+  deleteMemory: (id) => ipcRenderer.invoke('dashboard:delete-memory', id),
+  clearMemory: () => ipcRenderer.invoke('dashboard:clear-memory'),
+  addMemory: (fact) => ipcRenderer.invoke('dashboard:add-memory', fact),
+  editMemory: (fact) => ipcRenderer.invoke('dashboard:edit-memory', fact),
+  toggleScreenTips: (paused) => ipcRenderer.send('dashboard:toggle-screentips', paused),
+  triggerScreenTip: () => ipcRenderer.invoke('dashboard:trigger-screentip'),
+  askAboutEntry: (text) => ipcRenderer.send('dashboard:ask-about-entry', text),
+  todoAdd: (text) => ipcRenderer.send('pet:todo-add', text),
+  todoComplete: (id) => ipcRenderer.send('pet:todo-complete', id),
+  todoRemove: (id) => ipcRenderer.send('pet:todo-remove', id),
+  todoEdit: (fields) => ipcRenderer.send('pet:todo-edit', fields),
+  taskJump: (sessionId) => ipcRenderer.send('pet:task-jump', sessionId),
+  pomodoroStart: () => ipcRenderer.send('pet:pomodoro-start'),
+  pomodoroStop: () => ipcRenderer.send('pet:pomodoro-stop'),
+  outlookStatus: () => ipcRenderer.invoke('dashboard:outlook-status'),
+  outlookSetClientId: (payload) => ipcRenderer.invoke('dashboard:outlook-set-client-id', payload),
+  outlookConnect: () => ipcRenderer.invoke('dashboard:outlook-connect'),
+  outlookDisconnect: () => ipcRenderer.invoke('dashboard:outlook-disconnect'),
+  outlookSyncNow: () => ipcRenderer.invoke('dashboard:outlook-sync-now'),
+});

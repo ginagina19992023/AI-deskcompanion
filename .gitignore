@@ -1,0 +1,33 @@
+node_modules/
+dist/
+out/
+
+# Machine-specific preferences and private runtime data.
+config.json
+data/*
+!data/.gitkeep
+
+# Local credentials and encrypted account caches.
+.env
+.env.*
+*.pem
+*.key
+
+# Diagnostic and scratch files.
+*.log
+*-runtime-check.png
+scratch-*.js
+npm-debug.log*
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local design notes contain workstation-specific paths.
+docs/superpowers/
+.venv/
+venv/
+__pycache__/
+*.pyc

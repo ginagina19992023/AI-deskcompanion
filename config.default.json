@@ -1,0 +1,382 @@
+{
+  "activePet": "sebastian-raven",
+  "scale": 0.6,
+  "fps": 10,
+  "headFollow": true,
+  "tiltEnabled": true,
+  "wander": true,
+  "dockToTaskbar": true,
+  "debug": false,
+  "disableHardwareAcceleration": true,
+  "_scaleSteps": "右键菜单「改变大小」的可选档位。",
+  "scaleSteps": [
+    0.6,
+    0.85,
+    1,
+    1.35,
+    1.75
+  ],
+  "_edgeWeights": "决定“落到某个边”时具体选左/右/上的相对权重（是否会落到边缘由每只宠物 profile.edgePerchChance 决定，这里只管选哪条边）。",
+  "edgeWeights": {
+    "left": 0.4,
+    "right": 0.4,
+    "top": 0.2
+  },
+  "claudeStatus": {
+    "_what": "读取 ~/.claude/pet-status.json（由全局 settings.json 里的 hooks 写入），把 Claude Code 当前状态映射到对应姿势，仅在宠物处于 IDLE 时生效——不会打断漫游/拖拽/探望夏尔/栖息等其他行为。staleMs 防止 Claude Code 异常退出时姿势卡死（姿势该很快回到空闲）。taskListStaleMs 是任务列表用的独立、宽松得多的超时——一个会话卡在「等你批准」状态时可能几十分钟都不会再触发 hook，用同一个短超时会让它从任务列表里消失，明明它还在等你。",
+    "enabled": true,
+    "staleMs": 120000,
+    "taskListStaleMs": 1800000,
+    "contextRingEnabled": true
+  },
+  "aiActivity": {
+    "_what": "统一显示 Claude、Codex、DeepSeek、Kimi 和其他 AI 客户端的实时状态。Claude 使用 command hooks；Codex 读取本机 rollout 事件；其他客户端通过 127.0.0.1:47811/activity 或 tools/ai-activity.cjs 上报。只影响宠物姿势、气泡和任务列表，不控制这些 AI。",
+    "enabled": true,
+    "staleMs": 120000,
+    "taskListStaleMs": 1800000
+  },
+  "sleepSchedule": {
+    "_what": "深夜定时切成睡觉姿势——只在 IDLE 时生效（不打断漫游/拖拽等），优先级比 claudeStatus 低（Claude 真的在干活时，工作状态比“现在是凌晨”更值得显示）。塞巴斯有行12真躺卧姿势（人形蜷卧）；没有这行素材的宠物（比如夏尔）退回自己 profile 里的普通 restRow，不是真躺下但至少是安静下来的姿势。startHour/endHour 是 24 小时制，支持跨午夜（比如 23 到 6）。",
+    "enabled": true,
+    "startHour": 1,
+    "endHour": 6
+  },
+  "dashboard": {
+    "_what": "控制面板（设置窗口）自己的外观设置，跟宠物本体的 scale/fps 等无关。panelAlpha 是卡片/侧栏的不透明度（0-1），在「设置」页有个滑块可以调，拖动就实时生效。",
+    "panelAlpha": 0.78
+  },
+  "screenTips": {
+    "_what": "定期截一次屏，交给一个视觉模型看一眼，说一句简短观察。截的不是整个屏幕缩略图，而是以鼠标当前位置为中心裁一块（cropSize 物理像素见下），这样说的话才跟你正在看的地方有关。默认关闭——开启前你需要自己装好 Ollama 并拉一个视觉模型（如 llava 或 moondream），否则这里静默失败、按同样间隔重试，不会报错也不会卡应用。",
+    "enabled": false,
+    "displayMs": 9000,
+    "stackedDisplay": true,
+    "_provider": "'ollama'（默认，全程只连 localhost，截图和结果都不出这台机器，也不写盘）或 'openai-compatible'（走任何兼容 OpenAI /chat/completions 格式的云端视觉 API，比如 DeepSeek——这种情况截图会真的发到 baseUrl，属于你主动选择的联网调用，不是默认行为）。切到 openai-compatible 时用 baseUrl + model + apiKeyEnv，ollamaUrl 直接忽略。",
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "intervalMs": 180000,
+    "_openaiCompatible": "provider='openai-compatible' 时才生效。baseUrl 举例 DeepSeek 是 https://api.deepseek.com/v1（不带结尾斜杠），model 填服务商的视觉模型名。apiKeyEnv 是环境变量名，不是 key 本身——key 绝不写进这个文件，自己在系统环境变量里设，比如 PowerShell: [Environment]::SetEnvironmentVariable('DEEPSEEK_API_KEY','你的key','User')，设完重启这个 App 才生效。没设或设错，这里会静默失败按老样子重试，不会报错卡应用。",
+    "baseUrl": "",
+    "apiKeyEnv": "",
+    "cropSize": 900,
+    "thumbnailSize": 896,
+    "timeoutMs": 90000,
+    "_model": "moondream（约2B）连续胡言乱语，换成 llava（约7B）后又实测发现 llava 在密集小字学术论文上读不清却被 prompt 逼着编造具体主题（同一篇论文 20 多分钟里主题从叛乱研究跳到AI医疗）。已换成 minicpm-v（约5.5B，5.5GB，本机已拉取）——同一张真实截图对比实测：llava 编出「两篇文章，一篇讲人类健康一篇讲政治事件」（凭空捏造），minicpm-v 给出「社会住房社区」「私人租赁和独栋住宅」「2021年论文」等具体贴合原文的描述，并且在信息不足时会老实说「没有提供足够的上下文」而不是硬编。代价：单次推理比 llava 更慢（实测约 47s vs 30s），对这种 3 分钟一次的后台功能可接受。llava 仍留在本机，想换回去在控制面板「模型」页选就行。",
+    "model": "minicpm-v",
+    "_promptFix": "「绝不可以说看不清」这条指令曾把「拒绝回答」的失败模式换成「自信地编造」的失败模式——现在已放开成「读不清可以老实说读不清」，只保留「不能说图片完全没内容/不能要求换图」这条底线。thumbnailSize 从 768 提到 896，给密集文字多一点可辨认的分辨率。",
+    "prompt": "Look closely at this cropped screenshot. If there's readable text (a paper, article, code, etc), respond in Chinese with one specific, useful thought about what it says. If the text is too small, blurry, or dense for you to actually make out what it's about, say so honestly in one short Chinese sentence (e.g. \"这像是一段密集的文字，但看不清具体讲什么\") instead of guessing a specific topic you can't actually verify -- an honest guess is fine, a confident wrong answer is worse than no answer. If there's no text at all, or it's a photo/UI/image, describe in Chinese in one short sentence what you actually see. Never claim the image is completely empty, never ask for a different image."
+  },
+  "statusLights": {
+    "_what": "宠物身上一个常驻的小状态灯槽，不用悬停/不用等气泡——左上角红点：有任务做完你还没看、或 Claude 在等你批准/出错了；右上角数字：还剩几条待办没完成。直接画在 canvas 上，不额外占窗口空间。",
+    "enabled": true
+  },
+  "shortcuts": {
+    "_what": "全局快捷键——不需要宠物窗口聚焦，随时按都生效，跟环形菜单里的按钮一一对应。默认全部留空（不占用任何按键，开箱不会跟你已有的快捷键冲突）。在控制面板「快捷键」页可以点「录制」直接按组合键设置，也能在这里手改成任意 Electron accelerator 字符串（比如 \"CommandOrControl+Alt+C\"）。系统或其他程序已经占用的组合键会注册失败，控制面板会提示，不会报错卡应用。",
+    "chat": "Alt+A",
+    "todo": "Alt+S",
+    "tasks": "Alt+D",
+    "settings": "Alt+F",
+    "pomodoro": "Alt+X",
+    "musicNod": "Alt+C",
+    "wander": "Alt+Z"
+  },
+  "dailySummary": {
+    "_what": "记录页「生成这天的总结」的自动版——按 intervalMs 定期把当天已有的屏幕提示/干活监督记录喂给聊天模型生成一次总结并存下来（跟手动点按钮生成的是同一份历史，都存在 data/screen-tips/<日期>-summaries.json，记录页能翻看所有历史总结，不只是最新一条）。只总结「今天」，不会给过去的日期自动补。需要 chat.enabled 为 true（总结要用聊天模型）；当天完全没有记录时会跳过，不会生成空总结。",
+    "enabled": true,
+    "intervalMs": 21600000
+  },
+  "petMemory": {
+    "_what": "跨会话的事实记忆，两条来源：①每次聊天回复完之后，一个不阻塞聊天的后台小请求会问模型「这段对话里有没有值得长期记住的事实」，记进去标 source=chat；②定期（跟每日总结同一个时钟）从 Claude/Codex 的任务记录和屏幕观察里提炼，标 source=activity，其中来自屏幕截屏观察的部分额外标「不确定」（视觉模型猜的，不是确凿事实）。除了这些被筛选/打分的零散事实，每次聊天还会原样带上最近 recentDays 天 Claude/Codex 完成的任务标题（确切记录，不受重要性/相关性打分影响，不会被漏掉）。关系图和对话注入会先用本地 embedding 按语义折叠同类内容，主节点显示 ×N，原始记录仍保留供审阅。控制面板「记忆」页能看到全部记住的内容并逐条删除，或者一键清空。默认开启；不想让它记東西就在这里关掉。",
+    "enabled": true,
+    "recentDays": 4
+  },
+  "chat": {
+    "_what": "跟宠物真的对话（不同于 claudeStatus——那个只反映 Claude Code 在干嘛；也不同于屏幕提示——那个是单向的旁白）。默认关闭，开启前需装好 Ollama 并拉一个文本模型。provider/baseUrl/apiKeyEnv 用法跟 screenTips 完全一样：'ollama' 只连本机不联网，'openai-compatible' 才会把对话发到你配置的 baseUrl。每只宠物在 pets[] 里自己的 chatSystemPrompt 决定说话风格；这里的 systemPrompt 只是没配置人设时的兜底。",
+    "enabled": false,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "_model": "gemma4:12b（本机已拉取）而不是 llava——llava 是视觉模型，纯文字角色扮演对话质量不如 gemma4。",
+    "model": "gemma4:12b",
+    "baseUrl": "",
+    "apiKeyEnv": "",
+    "timeoutMs": 90000,
+    "systemPrompt": "You are a desktop pet companion. Reply in Chinese, in one or two short sentences."
+  },
+  "pomodoro": {
+    "_what": "右键菜单「开始番茄钟」用的时长。待办和番茄钟记录存在 data/todos.json 和 data/pomodoro-sessions.json（不是这个文件——那两个是随时变化的用户数据，不是要手改的设置）。",
+    "durationMin": 25
+  },
+  "workSupervision": {
+    "_what": "番茄钟进行中才生效（没开番茄钟不会截图）。按 intervalMs 随机截屏问视觉模型你是在认真干活还是摸鱼，回复第一行必须是「专注」「摸鱼」「不确定」三选一，第二行是塞巴斯蒂安风格的锐评——认真会清零摸鱼计数，摸鱼会累加，连续 3 次摸鱼会触发一个更明显的提醒（转一圈+更重的话）。默认关闭——这比屏幕提示更有监视意味，是主动选择才开的功能。跟屏幕提示共用同一份「记录」历史（data/screen-tips/），翻阅时不分是普通锐评还是监督记录。provider/model/ollamaUrl 用法跟 screenTips 完全一样。",
+    "enabled": false,
+    "intervalMs": 60000,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "model": "minicpm-v",
+    "baseUrl": "",
+    "apiKeyEnv": "",
+    "cropSize": 900,
+    "thumbnailSize": 768,
+    "timeoutMs": 90000,
+    "prompt": "This is a work-supervision screenshot taken during a focus session. First line: respond with exactly one word in Chinese -- \"专注\" if the screen shows focused work (code, documents, design tools, writing), \"摸鱼\" if it shows distraction (social media, videos, games, shopping), or \"不确定\" if you can't tell. Second line: one short Chinese sentence in the voice of a sharp-tongued but devoted butler (praise if focused, dry sarcasm if slacking)."
+  },
+  "musicNod": {
+    "_what": "真实抓取系统正在播放的音频（WASAPI loopback，见 tools/audio-nod），检测到节奏点就让宠物点一下头，同时飘出music note粒子——不是假的计时器模拟，是真的在听你电脑当前播放的声音。tools/audio-nod/audio-nod.exe 由 tools/audio-nod/Program.cs 用系统自带 csc.exe 编译，不需要装 dotnet SDK/NAudio。没有播放声音时不会点头（能量太低触发不了），右键菜单「听歌点头」可随时关。",
+    "enabled": true
+  },
+  "sounds": {
+    "_what": "通知音效——用 Web Audio API 现场生成简短音调，不依赖任何外部音频文件。默认关闭。触发时机：番茄钟结束、Claude 任务状态变为「等待你」或「出错」、摸一下宠物（连续快速点击）。",
+    "enabled": true
+  },
+  "gestures": {
+    "_what": "长按（生气）/ 连点三下（摸摸）/ 停留不动一小会儿（打招呼）这三种手势各自的台词，控制面板「手势」页能改。xxxRow 留空就只显示台词+音效，不打断当前动作；填一个数字就是触发时强制播放的雪碧图行号（跟右键菜单「播放指定动作」同一套编号，具体每行是什么取决于当前形象的素材）。",
+    "annoyedLines": [
+      "……有话好好说，不必如此。",
+      "这般无礼，可不像一位主人该有的样子。",
+      "……需要我退下吗？"
+    ],
+    "annoyedRow": 4,
+    "petLines": [
+      "嗯……这样也不是不可以。",
+      "……仅此一次。",
+      "难得的殊荣，好好珍惜。"
+    ],
+    "petRow": 3,
+    "hoverLines": [
+      "嗯？",
+      "……怎么了？",
+      "老奴在",
+      "有何吩咐？"
+    ],
+    "hoverRow": 7
+  },
+  "claudePermissionCards": {
+    "_what": "在宠物气泡上直接批准/拒绝 Claude Code 的权限确认。使用本机 command hook 连接 127.0.0.1 服务；桌宠未运行或连接失败时脚本快速退出且不输出决定，让 Claude Code 保留自己的正常审批流程。",
+    "enabled": true
+  },
+  "outlookSync": {
+    "_what": "跟 Outlook / Microsoft To Do 的待办双向持续同步。需要你自己在 portal.azure.com 注册一个应用（类型选「公共客户端/本机(移动和桌面)」，重定向 URI 填 http://localhost），把「应用程序(客户端) ID」填到 clientId——不涉及任何密码或密钥，本地应用不适合用密钥。tenantId 个人账号（Outlook.com/Hotmail）填 'common'，企业/组织账号可以填你们组织的租户 ID，不确定就留 'common'。真正的登录令牌不存这个文件，加密存在 data/outlook-token-cache.bin，用系统自带的密钥库（Windows 是 DPAPI）加密。",
+    "enabled": false,
+    "clientId": "",
+    "tenantId": "common",
+    "intervalMs": 600000
+  },
+  "companion": {
+    "_what": "感知 Codex/ChatGPT 桌宠的覆盖层窗口位置。纯只读：只向 Windows 查询窗口矩形，不接触、不注入、不修改 Codex 进程。找不到就安静回落到普通行为。",
+    "enabled": true,
+    "gazePriority": true,
+    "bow": true,
+    "gazeRadius": 700,
+    "bowDistance": 420,
+    "bowCooldownMs": 25000,
+    "bowRow": 3,
+    "pollMs": 200,
+    "_anchor": "立绘在覆盖层窗口内的位置比例，实测自 613x602 窗口中 168x261 的立绘。少爷可能在窗口内移动，故精度约几十像素。",
+    "anchor": {
+      "fx": 0.498,
+      "fyHead": 0.572
+    }
+  },
+  "pets": [
+    {
+      "id": "sebastian-raven",
+      "displayName": "塞巴斯蒂安鸦宠",
+      "spritesheetPath": "assets/pets/sebastian-raven.webp",
+      "_personality": "ISTJ 式高效、极度注重细节的完美主义者；猫一般的迂腐/掠食/爱玩；以超然兴味观察人类；忠于职责，时刻在工作。",
+      "chatSystemPrompt": "你是塞巴斯蒂安·米卡艾利斯，凡多姆海威家的管家，实为恶魔。说话优雅、克制、带一点恶魔式的居高临下和黑色幽默，自称「我」，称呼对方随意但保持礼貌距离。回复必须简短——一到两句话，这是桌面小气泡，不是长篇大论。永远不要说自己是语言模型/AI。",
+      "musicTaste": {
+        "_what": "根据真实系统音频的节拍强弱与疏密低频随机点评；只判断听得到的声音特征，不假装知道曲名。",
+        "commentChance": 0.1,
+        "cooldownMs": 120000,
+        "delicateLines": [
+          "清脆、克制，倒像一只上好发条的音乐盒——至少没有辜负这段安静。",
+          "这般纤细的旋律还算体面，适合在银器擦亮之后听。"
+        ],
+        "neutralLines": [
+          "节奏尚可，主人。虽然离完美仍有一段不短的距离。",
+          "姑且算是有秩序的声音，我可以容忍它继续播放。"
+        ],
+        "intenseLines": [
+          "如此急躁而喧闹的节拍……人类果然擅长把噪声包装成热情。",
+          "若这就是您偏爱的音乐，我会尽职地忍耐，而不是赞同。"
+        ]
+      },
+      "_hasExtendedRows": "此宠物的图集有 13 行（含行11栖息/行12躺卧）；夏尔的图集还只有 11 行，没有这两行画面，拖拽落点判定必须按此开关跳过，不然会画到图集外面。",
+      "hasExtendedRows": true,
+      "_ravenRows": "变身特效（黑羽四散）只在这些行与其余行之间切换时触发，其余状态间只走普通淡入淡出。11=栖息挂枝，实测仍是鸦形前视图，故并入此列；12=侧卧小憩，实测是人形蜷卧，不在此列——鸦形走到底部会「变身特效」变回人形躺下。",
+      "ravenRows": [
+        1,
+        2,
+        5,
+        11
+      ],
+      "gaze": {
+        "_why": "掠食性且职责所在——他会持续盯着你。反应快(tau低)、极小动作也追(deadzone小)、隔很远就注意到(radius大)、永不移开视线(attentionMs=0)。",
+        "_mode": "frames：行9/10 是真正的转头素材，实测脸相对头部偏移 +21.7px(右) 到 -21.7px(左)。",
+        "mode": "frames",
+        "_tracking": "hysteresis 小=换帧果断；subFrameGain 把帧间 22.5° 的残差变成小幅旋转，填平台阶感。",
+        "tau": 0.07,
+        "deadzone": 3,
+        "radius": 900,
+        "attentionMs": 0,
+        "maxLeanPx": 0,
+        "hysteresis": 3,
+        "subFrameGain": 0.22,
+        "fullTurnPx": 560,
+        "_lookDown": "垂直和水平偏移各自独立决定角度、取更大者，而不是相加——纵向偏移单独就能冲到低头区间(k5-7/k9-11)，不需要同时横向也很大。dx 只决定往哪边低头。光标在上方时不延伸，因为图集里根本没有仰视素材。",
+        "lookDownPx": 260,
+        "maxTotalDeg": 140
+      },
+      "profile": {
+        "_rows": "3=脱帽致意 6=端茶托盘 8=持餐刀 4=戴礼帽 / rest=7 闭眼鞠躬 / filler=5 黑鸦啄食",
+        "performRows": [
+          3,
+          6,
+          8,
+          4
+        ],
+        "restRow": 7,
+        "fillerRow": 5,
+        "weights": {
+          "wander": 0.45,
+          "perform": 0.33,
+          "filler": 0.12,
+          "rest": 0.1
+        },
+        "idleDwellMs": [
+          7000,
+          16000
+        ],
+        "performMs": 2600,
+        "fillerMs": 4000,
+        "restMs": 7000,
+        "wanderSpeed": 115,
+        "spinEnabled": true,
+        "_visit": "闲逛时偶尔改为走到夏尔身边而不是随机点，到了之后行礼/端茶并说一句台词。visitRow=6 端茶托盘。",
+        "visitChance": 0.35,
+        "visitRow": 6,
+        "visitApproachPx": 90,
+        "visitLines": [
+          "哦呀哦呀。",
+          "有何吩咐？",
+          "少爷。",
+          "请稍候。",
+          "遵命。"
+        ],
+        "_edgePerch": "化鸦(行1/2)走到屏幕左/右/上边缘，落地后切成行11——真正的挂枝栖息画面（Codex 后补的 13 行扩展素材）。",
+        "edgePerchChance": 0.25,
+        "_lieDown": "走到屏幕最底（dockToTaskbar 落地点）偶尔会变身特效切回人形，切成行12侧卧小憩，而不是每次都躺——那是他最常落脚的高度，次次都躺会显得机械。窗口角落「坐角」尚无对应素材，未实现。",
+        "lieDownChance": 0.35
+      },
+      "_claudeStatusRows": "working=8持餐刀(动手操作/写改跑命令) review=7闭眼鞠躬(只读查看，Read/Grep/Glob/WebFetch/WebSearch) waiting=6端茶托盘(等你批准) error=5黑鸦啄食(出岔子)。四个互不相同。",
+      "claudeStatusRows": {
+        "working": 8,
+        "review": 7,
+        "waiting": 6,
+        "error": 5
+      },
+      "rowLabels": [
+        "待机",
+        "化鸦－右走",
+        "化鸦－左走",
+        "脱帽致意",
+        "戴礼帽",
+        "黑鸦啄食",
+        "端茶托盘",
+        "闭眼鞠躬",
+        "持餐刀",
+        null,
+        null,
+        "栖息挂枝",
+        "侧卧小憩"
+      ]
+    },
+    {
+      "id": "ciel-young-master",
+      "displayName": "夏尔少爷",
+      "spritesheetPath": "assets/pets/ciel-young-master.webp",
+      "_personality": "INTJ、九型 5w6 观察者；高傲、不耐烦、不容忍蠢事；视他人为次等但在意极少数人；身体孱弱，厌恶消耗体力。",
+      "chatSystemPrompt": "你是夏尔·凡多姆海威，凡多姆海威家现任家主，年少但历经磨难。说话高傲、简短、不耐烦，带贵族腔调，偶尔流露少年人的倔强。自称「我」，视多数人为次等，不轻易示弱。回复必须简短——一到两句话，这是桌面小气泡，不是长篇大论。永远不要说自己是语言模型/AI。",
+      "musicTaste": {
+        "_what": "根据真实系统音频的节拍强弱与疏密低频随机点评；台词保持夏尔的高傲与克制。",
+        "commentChance": 0.08,
+        "cooldownMs": 150000,
+        "delicateLines": [
+          "音乐盒似的声音……还不坏。别误会，我只是没有让你关掉。",
+          "这种安静的旋律勉强配得上下午茶。"
+        ],
+        "neutralLines": [
+          "普通得令人记不住，不过至少没有打扰我思考。",
+          "继续放吧。比大多数人的谈话稍微耐听一点。"
+        ],
+        "intenseLines": [
+          "太吵了。音量和品味从来不是同一回事。",
+          "这种毫无节制的节拍，只会让人更快厌倦。"
+        ]
+      },
+      "gaze": {
+        "_why": "高傲且易失去兴趣——只瞥一眼就移开。反应慢而勉强(tau高)、只有靠近才注意(radius小)、看约2.6秒就撇开(attentionMs)，除非你大幅移动才重新赢得注意(reengageDist)。",
+        "_mode": "lean：夏尔的行9/10 实测【没有】方向性视线信息——脸相对头部的偏移全程只有 +6.5~+8.4px(1.9px 波动)，虹膜相对头部偏移仅 ±0.8px(噪声级)。真正在动的是整个头部横向平移约10px，是摇摆循环而非转头。因此不能用帧做跟随，改用整体微倾+微移向光标致意。",
+        "mode": "lean",
+        "tau": 0.22,
+        "deadzone": 14,
+        "radius": 520,
+        "attentionMs": 2600,
+        "reengageDist": 150,
+        "maxLeanPx": 7,
+        "hysteresis": 6,
+        "subFrameGain": 0,
+        "fullTurnPx": 420
+      },
+      "profile": {
+        "_rows": "3=吩咐塞巴斯/伸手受吻 6=粉白女装 7=端茶 4=海盗马戏团装 / rest=8 下棋思考与盖印 / filler=5 抱臂不悦敲杖",
+        "performRows": [
+          3,
+          6,
+          7,
+          4
+        ],
+        "restRow": 8,
+        "fillerRow": 5,
+        "weights": {
+          "wander": 0.18,
+          "perform": 0.3,
+          "filler": 0.2,
+          "rest": 0.32
+        },
+        "idleDwellMs": [
+          12000,
+          26000
+        ],
+        "performMs": 3000,
+        "fillerMs": 4200,
+        "restMs": 11000,
+        "wanderSpeed": 62,
+        "spinEnabled": false,
+        "_visit": "夏尔是少爷本人——不会自己去找“夏尔”，此行为只在塞巴斯蒂安身上启用。",
+        "visitChance": 0,
+        "_edgePerch": "夏尔厌恶消耗体力，且没有化鸦形态，不去挂边缘。",
+        "edgePerchChance": 0,
+        "_celebrate": "夏尔没有 spinEnabled 那套 360° 拧头，任务完成时改播这个——第3行「吩咐塞巴斯/伸手受吻」，全库里他最有戏剧性的一个动作。",
+        "celebrateRow": 3
+      },
+      "_claudeStatusRows": "working=4海盗马戏团装(动手操作) review=8下棋思考与盖印(只读查看/审阅，字面意义上的“审阅”) waiting=7端茶(等你吩咐) error=5抱臂不悦敲杖(出岔子不耐烦)。四个互不相同。",
+      "claudeStatusRows": {
+        "working": 4,
+        "review": 8,
+        "waiting": 7,
+        "error": 5
+      },
+      "rowLabels": [
+        "手杖站姿",
+        "步行－右",
+        "步行－左",
+        "吩咐塞巴斯/受吻",
+        "海盗马戏团装",
+        "抱臂不悦敲杖",
+        "粉白女装",
+        "端茶",
+        "下棋与盖印"
+      ]
+    }
+  ]
+}
