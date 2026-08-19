@@ -12,7 +12,6 @@
       --line: rgba(68, 33, 41, 0.14);
       --panel: rgba(255, 252, 249, 0.91);
       --accent: #8d2638;
-      --accent-2: #bf5d61;
       --ok: #287a50;
       --warn: #9a651f;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -32,9 +31,9 @@
     h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(30px, 4vw, 50px); line-height: 1; margin: 0 0 10px; letter-spacing: -0.03em; }
     h1 span { color: var(--accent); }
     .subtitle { color: var(--muted); max-width: 720px; line-height: 1.55; }
-    .status-card { min-width: 260px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 15px; background: var(--panel); box-shadow: 0 10px 30px rgba(44, 28, 31, 0.06); }
+    .status-card { min-width: 280px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 15px; background: var(--panel); box-shadow: 0 10px 30px rgba(44, 28, 31, 0.06); }
     .status-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; padding: 3px 0; }
-    .status-row strong { font-weight: 650; }
+    .status-row strong { font-weight: 650; text-align: right; }
     .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: rgba(40, 122, 80, 0.1); color: var(--ok); font-size: 11px; font-weight: 700; }
     .pill.warn { background: rgba(154, 101, 31, 0.1); color: var(--warn); }
     .layout { display: grid; grid-template-columns: minmax(330px, 0.9fr) minmax(520px, 1.4fr); gap: 18px; align-items: start; }
@@ -56,7 +55,7 @@
     .ref { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; position: relative; background: white; }
     .ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .ref button { position: absolute; top: 5px; right: 5px; width: 23px; height: 23px; border: 0; border-radius: 50%; background: rgba(0,0,0,.65); color: white; cursor: pointer; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
     button, .file-btn { border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; background: rgba(255,255,255,.72); color: var(--ink); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s ease; }
     button:hover, .file-btn:hover { transform: translateY(-1px); border-color: rgba(141, 38, 56, .35); }
     button.primary { background: linear-gradient(135deg, var(--accent), #70202d); border-color: transparent; color: white; }
@@ -102,6 +101,7 @@
       <div class="status-card">
         <div class="status-row"><span>图像模型</span><strong id="modelText">读取中…</strong></div>
         <div class="status-row"><span>质量</span><strong id="qualityText">—</strong></div>
+        <div class="status-row"><span>透明策略</span><strong id="backgroundText">—</strong></div>
         <div class="status-row"><span>API key</span><span id="keyPill" class="pill warn">检查中</span></div>
       </div>
     </header>
@@ -140,7 +140,7 @@
               <option value="fast">快速模式 · 一次直接生成整张图集</option>
               <option value="manual">手动模式 · 只生成提示词，不调用 API</option>
             </select>
-            <div class="hint" id="modeHint">稳定模式在 gpt-image-2 上通常需要 5 次图片调用：1 张身份锚点 + 4 组动作图；成本更高，但角色一致性和格子布局更可控。</div>
+            <div class="hint" id="modeHint">稳定模式优先保证角色一致性和格子布局。</div>
           </div>
 
           <div class="actions">
@@ -205,7 +205,7 @@
           <div id="rightNotice" class="notice"></div>
           <div id="identityBox" class="identity">
             <img id="identityImg" alt="identity anchor" />
-            <div><strong>Identity anchor</strong><span>稳定模式先生成这张角色身份锚点，再让后续动作组只围绕它做动画变化；这就是多张参考图与最终动作之间的“角色锁”。</span></div>
+            <div><strong>Identity anchor</strong><span>稳定模式先生成角色身份锚点，再让后续动作组只围绕它做动画变化。若模型使用绿幕背景，这里的绿幕也会在浏览器本地转成透明。</span></div>
           </div>
         </div>
       </section>
@@ -269,6 +269,71 @@
       return `data:${image.mime || 'image/png'};base64,${image.base64}`;
     }
 
+    function isKeyGreen(data, offset) {
+      const r = data[offset];
+      const g = data[offset + 1];
+      const b = data[offset + 2];
+      const a = data[offset + 3];
+      // Intentionally tolerant because generated “#00FF00” often acquires a
+      // little antialiasing/compression variation. Flood-fill connectivity,
+      // not a global green delete, protects enclosed green character details.
+      return a > 0 && g >= 135 && g - r >= 70 && g - b >= 60;
+    }
+
+    function removeEdgeConnectedChroma(canvas) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const width = canvas.width;
+      const height = canvas.height;
+      const image = ctx.getImageData(0, 0, width, height);
+      const data = image.data;
+      const count = width * height;
+      const visited = new Uint8Array(count);
+      const queue = new Int32Array(count);
+      let head = 0;
+      let tail = 0;
+
+      function enqueue(pixel) {
+        if (pixel < 0 || pixel >= count || visited[pixel]) return;
+        if (!isKeyGreen(data, pixel * 4)) return;
+        visited[pixel] = 1;
+        queue[tail++] = pixel;
+      }
+
+      for (let x = 0; x < width; x++) {
+        enqueue(x);
+        enqueue((height - 1) * width + x);
+      }
+      for (let y = 1; y < height - 1; y++) {
+        enqueue(y * width);
+        enqueue(y * width + width - 1);
+      }
+
+      while (head < tail) {
+        const pixel = queue[head++];
+        const x = pixel % width;
+        const y = (pixel - x) / width;
+        if (x > 0) enqueue(pixel - 1);
+        if (x + 1 < width) enqueue(pixel + 1);
+        if (y > 0) enqueue(pixel - width);
+        if (y + 1 < height) enqueue(pixel + width);
+      }
+
+      for (let i = 0; i < tail; i++) data[queue[i] * 4 + 3] = 0;
+      ctx.putImageData(image, 0, 0);
+      return { removedPixels: tail, totalPixels: count };
+    }
+
+    async function prepareGeneratedCanvas(imagePayload, backgroundMode) {
+      const img = await imageFromDataUrl(generatedDataUrl(imagePayload));
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      if (backgroundMode === 'chroma-key') removeEdgeConnectedChroma(canvas);
+      return canvas;
+    }
+
     function drawGrid() {
       gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
       gridCtx.save();
@@ -296,24 +361,24 @@
       $('emptyPreview').style.display = 'none';
     }
 
-    async function drawSingleAtlas(imagePayload) {
-      const img = await imageFromDataUrl(generatedDataUrl(imagePayload));
+    async function drawSingleAtlas(imagePayload, backgroundMode) {
+      const source = await prepareGeneratedCanvas(imagePayload, backgroundMode);
       atlasCtx.clearRect(0, 0, 1536, 2288);
-      atlasCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, 1536, 2288);
+      atlasCtx.drawImage(source, 0, 0, source.width, source.height, 0, 0, 1536, 2288);
       markAtlasReady();
     }
 
-    async function drawGroups(groups) {
+    async function drawGroups(groups, backgroundMode) {
       atlasCtx.clearRect(0, 0, 1536, 2288);
       for (const group of groups) {
-        const img = await imageFromDataUrl(generatedDataUrl(group.image));
+        const source = await prepareGeneratedCanvas(group.image, backgroundMode);
         const [requestedW, requestedH] = group.requestedSize.split('x').map(Number);
         const crop = group.crop;
-        const sxScale = img.naturalWidth / requestedW;
-        const syScale = img.naturalHeight / requestedH;
+        const sxScale = source.width / requestedW;
+        const syScale = source.height / requestedH;
         const destY = group.startRow * 208;
         atlasCtx.drawImage(
-          img,
+          source,
           crop.x * sxScale,
           crop.y * syScale,
           crop.width * sxScale,
@@ -327,12 +392,18 @@
       markAtlasReady();
     }
 
+    async function drawIdentityAnchor(imagePayload, backgroundMode) {
+      const source = await prepareGeneratedCanvas(imagePayload, backgroundMode);
+      $('identityImg').src = source.toDataURL('image/png');
+      $('identityBox').style.display = 'grid';
+    }
+
     async function drawManualFile(file) {
       const dataUrl = await fileToDataUrl(file);
       const img = await imageFromDataUrl(dataUrl);
       atlasCtx.clearRect(0, 0, 1536, 2288);
       atlasCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, 1536, 2288);
-      state.generation = { plan: { mode: 'manual', strategy: 'external-image-import', model: 'external', referenceCount: state.refs.length } };
+      state.generation = { plan: { mode: 'manual', strategy: 'external-image-import', model: 'external', backgroundMode: 'external', referenceCount: state.refs.length } };
       $('identityBox').style.display = 'none';
       markAtlasReady();
       showNotice($('rightNotice'), `已导入 ${file.name}，并在本机画布归一化到 1536×2288。请检查格线里的角色有没有跨格，再保存角色包。`, 'warn');
@@ -360,6 +431,12 @@
       }
     }
 
+    function backgroundLabel(mode) {
+      if (mode === 'chroma-key') return '绿幕 → 本地透明';
+      if (mode === 'transparent') return 'API 原生透明';
+      return mode || '—';
+    }
+
     async function refreshPlan() {
       const mode = $('mode').value;
       const body = {
@@ -376,6 +453,7 @@
         `<span class="meta-chip">策略：${p.strategy}</span>`,
         `<span class="meta-chip">预计图片调用：${p.estimatedImageCalls}</span>`,
         `<span class="meta-chip">参考图：${p.referenceCount}</span>`,
+        `<span class="meta-chip">背景：${backgroundLabel(p.backgroundMode)}</span>`,
         `<span class="meta-chip">最终：1536×2288</span>`,
       ].join('');
       const promptSections = [];
@@ -386,12 +464,11 @@
         promptSections.push(`=== FULL ATLAS ===\n${p.fullAtlasPrompt}`);
       }
       $('promptBox').value = promptSections.join('\n\n');
-      const stable = mode === 'stable';
       $('modeHint').textContent = mode === 'manual'
         ? '不调用 API：只准备完整 prompt。你可以去 ChatGPT 或任何支持图像生成/编辑的工具生成，再把结果导回来。'
-        : stable
-          ? `当前策略：${p.strategy}，预计 ${p.estimatedImageCalls} 次图片调用。服务器会自动处理“多参考图不被端点接受”时的单参考降级。`
-          : '快速模式只做一次整图生成，便宜和快，但 11 行动作之间的角色一致性、格子几何通常不如稳定模式。';
+        : mode === 'stable'
+          ? `当前策略：${p.strategy}，预计 ${p.estimatedImageCalls} 次图片调用。${p.backgroundMode === 'chroma-key' ? ' 当前模型的透明输出由 Studio 本地做边缘连通绿幕去除。' : ''}`
+          : `快速模式只做一次整图生成。${p.backgroundMode === 'chroma-key' ? ' 结果会先在本地去绿幕再进入最终透明画布。' : ''}`;
       return payload;
     }
 
@@ -411,7 +488,7 @@
       if (!state.status?.hasApiKey) {
         return showNotice($('leftNotice'), '当前 Pet Studio 启动时没有检测到 OPENAI_API_KEY。请设置环境变量并重启 Studio，或者使用手动模式。', 'error');
       }
-      setBusy(true, mode === 'stable' ? '正在锁定角色并生成动作组…' : '正在生成整张图集…', mode === 'stable' ? '稳定模式会先生成 identity anchor，再顺序生成 4 个动作组。通常需要几分钟，请保持此窗口打开。' : '快速模式只调用一次图像模型。');
+      setBusy(true, mode === 'stable' ? '正在锁定角色并生成动作组…' : '正在生成整张图集…', mode === 'stable' ? '稳定模式会先生成 identity anchor，再顺序生成动作组。通常需要几分钟，请保持此窗口打开。' : '快速模式只调用一次图像模型。');
       $('generateBtn').disabled = true;
       try {
         const payload = await api('/api/generate', {
@@ -426,16 +503,16 @@
         });
         state.generation = payload;
         state.plan = payload.plan;
-        if (payload.identityAnchor) {
-          $('identityImg').src = generatedDataUrl(payload.identityAnchor);
-          $('identityBox').style.display = 'grid';
-        } else {
-          $('identityBox').style.display = 'none';
-        }
-        if (payload.result.type === 'groups') await drawGroups(payload.result.groups);
-        else await drawSingleAtlas(payload.result.image);
+        const backgroundMode = payload.plan.backgroundMode;
+        if (payload.identityAnchor) await drawIdentityAnchor(payload.identityAnchor, backgroundMode);
+        else $('identityBox').style.display = 'none';
+        if (payload.result.type === 'groups') await drawGroups(payload.result.groups, backgroundMode);
+        else await drawSingleAtlas(payload.result.image, backgroundMode);
+        const transparencyText = backgroundMode === 'chroma-key'
+          ? '\n\n当前模型不提供原生透明背景；Studio 已在本机只删除与画布边缘连通的绿幕区域，并把最终图集保存为真正带 alpha 的 PNG。'
+          : '';
         const warningText = payload.warnings?.length ? `\n\n降级/提示：\n- ${payload.warnings.join('\n- ')}` : '';
-        showNotice($('rightNotice'), `生成完成。请打开格线检查每个动作有没有跨格；满意后点“保存为角色包”。${warningText}`, payload.warnings?.length ? 'warn' : '');
+        showNotice($('rightNotice'), `生成完成。请打开格线检查每个动作有没有跨格；满意后点“保存为角色包”。${transparencyText}${warningText}`, payload.warnings?.length ? 'warn' : '');
         await refreshPlan();
       } catch (err) {
         showNotice($('leftNotice'), err.message, 'error');
@@ -450,7 +527,7 @@
       showNotice($('rightNotice'), '');
       $('saveBtn').disabled = true;
       try {
-        const plan = state.generation?.plan || state.plan || { mode: 'manual', strategy: 'external-image-import', model: 'external', referenceCount: state.refs.length };
+        const plan = state.generation?.plan || state.plan || { mode: 'manual', strategy: 'external-image-import', model: 'external', backgroundMode: 'external', referenceCount: state.refs.length };
         const payload = await api('/api/save-pack', {
           method: 'POST',
           body: {
@@ -463,6 +540,7 @@
               model: plan.model,
               mode: plan.mode,
               strategy: plan.strategy,
+              backgroundMode: plan.backgroundMode,
               referenceCount: plan.referenceCount,
             },
           },
@@ -480,9 +558,7 @@
       const files = [...event.target.files];
       const room = Math.max(0, 3 - state.refs.length);
       const picked = files.slice(0, room);
-      for (const file of picked) {
-        state.refs.push({ name: file.name, dataUrl: await fileToDataUrl(file) });
-      }
+      for (const file of picked) state.refs.push({ name: file.name, dataUrl: await fileToDataUrl(file) });
       if (files.length > room) showNotice($('leftNotice'), '最多使用 3 张参考图，额外文件已忽略。', 'warn');
       event.target.value = '';
       renderRefs();
@@ -519,6 +595,7 @@
         state.status = await api('/api/status');
         $('modelText').textContent = state.status.model;
         $('qualityText').textContent = state.status.quality;
+        $('backgroundText').textContent = backgroundLabel(state.status.backgroundMode);
         $('keyPill').textContent = state.status.hasApiKey ? '已检测到' : '未设置';
         $('keyPill').className = `pill${state.status.hasApiKey ? '' : ' warn'}`;
         if (!state.status.hasApiKey) {
