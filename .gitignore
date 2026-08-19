@@ -7,6 +7,11 @@ config.json
 data/*
 !data/.gitkeep
 
+# Pet Studio output is user-generated local content. Keep prompts, character
+# descriptions and generated art out of Git unless the user explicitly moves
+# a finished pack somewhere tracked.
+generated-pets/
+
 # Local credentials and encrypted account caches.
 .env
 .env.*
