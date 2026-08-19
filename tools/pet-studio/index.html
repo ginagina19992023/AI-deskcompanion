@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Desk Companion · Pet Studio</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #2c1c1f;
+      --muted: #7b666a;
+      --line: rgba(68, 33, 41, 0.14);
+      --panel: rgba(255, 252, 249, 0.91);
+      --accent: #8d2638;
+      --accent-2: #bf5d61;
+      --ok: #287a50;
+      --warn: #9a651f;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 18% 0%, rgba(163, 70, 87, 0.13), transparent 34%),
+        radial-gradient(circle at 92% 12%, rgba(193, 145, 115, 0.14), transparent 30%),
+        #f4efeb;
+    }
+    .shell { width: min(1280px, calc(100% - 32px)); margin: 28px auto 60px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 22px; }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(30px, 4vw, 50px); line-height: 1; margin: 0 0 10px; letter-spacing: -0.03em; }
+    h1 span { color: var(--accent); }
+    .subtitle { color: var(--muted); max-width: 720px; line-height: 1.55; }
+    .status-card { min-width: 260px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 15px; background: var(--panel); box-shadow: 0 10px 30px rgba(44, 28, 31, 0.06); }
+    .status-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; padding: 3px 0; }
+    .status-row strong { font-weight: 650; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: rgba(40, 122, 80, 0.1); color: var(--ok); font-size: 11px; font-weight: 700; }
+    .pill.warn { background: rgba(154, 101, 31, 0.1); color: var(--warn); }
+    .layout { display: grid; grid-template-columns: minmax(330px, 0.9fr) minmax(520px, 1.4fr); gap: 18px; align-items: start; }
+    .panel { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: 0 18px 50px rgba(44, 28, 31, 0.07); overflow: hidden; }
+    .panel-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0 0 5px; font-size: 17px; }
+    .panel-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .panel-body { padding: 18px 20px 20px; }
+    .field { margin-bottom: 16px; }
+    label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 7px; }
+    input[type="text"], textarea, select {
+      width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: rgba(255,255,255,.72); color: var(--ink); outline: none; font: inherit; font-size: 13px;
+    }
+    textarea { min-height: 126px; resize: vertical; line-height: 1.55; }
+    input:focus, textarea:focus, select:focus { border-color: rgba(141, 38, 56, .5); box-shadow: 0 0 0 3px rgba(141, 38, 56, .08); }
+    .hint { color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 6px; }
+    .ref-drop { border: 1.5px dashed rgba(141, 38, 56, .3); border-radius: 14px; padding: 14px; background: rgba(141, 38, 56, .035); }
+    .ref-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .ref { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; position: relative; background: white; }
+    .ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ref button { position: absolute; top: 5px; right: 5px; width: 23px; height: 23px; border: 0; border-radius: 50%; background: rgba(0,0,0,.65); color: white; cursor: pointer; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    button, .file-btn { border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; background: rgba(255,255,255,.72); color: var(--ink); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s ease; }
+    button:hover, .file-btn:hover { transform: translateY(-1px); border-color: rgba(141, 38, 56, .35); }
+    button.primary { background: linear-gradient(135deg, var(--accent), #70202d); border-color: transparent; color: white; }
+    button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .file-btn input { display: none; }
+    .plan-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+    .meta-chip { padding: 5px 8px; border-radius: 8px; background: rgba(77, 52, 57, .07); color: var(--muted); font-size: 11px; }
+    #promptBox { min-height: 185px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+    .preview-area { position: relative; min-height: 600px; display: flex; align-items: center; justify-content: center; background: repeating-conic-gradient(#f8f4f1 0 25%, #eee8e4 0 50%) 50% / 26px 26px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+    .preview-stack { position: relative; width: min(100%, 720px); }
+    #atlasCanvas, #gridCanvas { width: 100%; height: auto; display: block; }
+    #gridCanvas { position: absolute; inset: 0; pointer-events: none; }
+    .empty-preview { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 30px; color: var(--muted); font-size: 13px; }
+    .identity { margin-top: 14px; display: none; grid-template-columns: 112px 1fr; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.55); }
+    .identity img { width: 112px; height: 112px; object-fit: contain; border-radius: 9px; background: repeating-conic-gradient(#fff 0 25%, #eee 0 50%) 50% / 16px 16px; }
+    .identity strong { display: block; font-size: 12px; margin-bottom: 4px; }
+    .identity span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .notice { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(40, 122, 80, .08); color: #285d43; font-size: 12px; line-height: 1.5; display: none; white-space: pre-wrap; }
+    .notice.error { background: rgba(141,38,56,.09); color: #7a2433; }
+    .notice.warn { background: rgba(154,101,31,.09); color: #80561d; }
+    .manual { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .manual h3 { font-size: 13px; margin: 0 0 5px; }
+    .manual p { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0 0 10px; }
+    .contract { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+    .contract summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+    .contract table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10.5px; }
+    .contract th, .contract td { padding: 5px 6px; text-align: left; border-bottom: 1px solid var(--line); }
+    .contract th { color: var(--muted); }
+    .busy { position: fixed; inset: 0; background: rgba(39, 23, 27, .38); backdrop-filter: blur(5px); display: none; place-items: center; z-index: 20; }
+    .busy-card { width: min(430px, calc(100% - 32px)); background: #fffaf6; border-radius: 16px; padding: 20px; box-shadow: 0 24px 80px rgba(0,0,0,.22); }
+    .busy-card strong { display: block; margin-bottom: 7px; }
+    .busy-card p { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } header { flex-direction: column; } .status-card { width: 100%; } .preview-area { min-height: 420px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>Pet <span>Studio</span></h1>
+        <div class="subtitle">用一段角色介绍 + 0–3 张参考图生成可直接导入 AI Desk Companion 的桌面宠物图集。参考图和 API key 都只经过本机 Pet Studio；API key 不会进入浏览器页面或仓库。</div>
+      </div>
+      <div class="status-card">
+        <div class="status-row"><span>图像模型</span><strong id="modelText">读取中…</strong></div>
+        <div class="status-row"><span>质量</span><strong id="qualityText">—</strong></div>
+        <div class="status-row"><span>API key</span><span id="keyPill" class="pill warn">检查中</span></div>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>1. 定义你的宠物</h2>
+          <p>文字负责“这个角色是谁”，参考图负责“它长什么样”。一张图也可以；2–3 张不同角度通常更稳。</p>
+        </div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="petName">宠物名字</label>
+            <input id="petName" type="text" maxlength="120" placeholder="例如：Mochi / 小黑 / 我的机器人" />
+          </div>
+          <div class="field">
+            <label for="petId">角色 ID（可选）</label>
+            <input id="petId" type="text" maxlength="64" placeholder="留空会根据名字自动生成" />
+          </div>
+          <div class="field">
+            <label for="description">角色介绍</label>
+            <textarea id="description" maxlength="2400" placeholder="写外观、性格、服装/配件、物种、颜色、气质、说话方式……例如：一只奶油色长毛猫，左耳有缺口，戴墨绿色领结，性格傲慢但会偷偷关心主人。"></textarea>
+          </div>
+          <div class="field">
+            <label>参考图（0–3 张）</label>
+            <div class="ref-drop">
+              <label class="file-btn">＋ 选择参考图<input id="refInput" type="file" accept="image/png,image/jpeg,image/webp" multiple /></label>
+              <div class="hint">支持 PNG / JPEG / WebP。只有点“生成宠物”后才会发给你配置的图像 API。</div>
+              <div id="refList" class="ref-list"></div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="mode">生成策略</label>
+            <select id="mode">
+              <option value="stable" selected>稳定模式 · 先锁定角色，再分组生成（推荐）</option>
+              <option value="fast">快速模式 · 一次直接生成整张图集</option>
+              <option value="manual">手动模式 · 只生成提示词，不调用 API</option>
+            </select>
+            <div class="hint" id="modeHint">稳定模式在 gpt-image-2 上通常需要 5 次图片调用：1 张身份锚点 + 4 组动作图；成本更高，但角色一致性和格子布局更可控。</div>
+          </div>
+
+          <div class="actions">
+            <button id="planBtn">查看生成方案</button>
+            <button id="generateBtn" class="primary">生成宠物</button>
+          </div>
+          <div id="leftNotice" class="notice"></div>
+
+          <div class="plan-meta" id="planMeta"></div>
+          <div class="field">
+            <label for="promptBox">实际生成提示词 / 手动模式提示词</label>
+            <textarea id="promptBox" readonly placeholder="点“查看生成方案”后会显示。"></textarea>
+            <div class="actions"><button id="copyPromptBtn">复制提示词</button></div>
+          </div>
+
+          <div class="manual">
+            <h3>没有 API，或你想在 ChatGPT / 其他工具里生成？</h3>
+            <p>选择“手动模式”，复制上面的 atlas prompt 和参考图去生成。拿到一张结果后，在这里导入；Studio 会统一缩放到 1536×2288，再生成标准角色包。</p>
+            <label class="file-btn">导入外部生成的图集<input id="manualAtlasInput" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+          </div>
+
+          <details class="contract">
+            <summary>查看 11 行动作契约</summary>
+            <table>
+              <thead><tr><th>行</th><th>帧数</th><th>语义</th></tr></thead>
+              <tbody>
+                <tr><td>0</td><td>7</td><td>待机</td></tr>
+                <tr><td>1</td><td>8</td><td>向右移动</td></tr>
+                <tr><td>2</td><td>8</td><td>向左移动</td></tr>
+                <tr><td>3</td><td>4</td><td>打招呼 / 表演</td></tr>
+                <tr><td>4</td><td>5</td><td>庆祝 / 跳跃</td></tr>
+                <tr><td>5</td><td>8</td><td>不悦 / 小动作</td></tr>
+                <tr><td>6</td><td>6</td><td>等待</td></tr>
+                <tr><td>7</td><td>6</td><td>休息</td></tr>
+                <tr><td>8</td><td>6</td><td>工作 / 审阅</td></tr>
+                <tr><td>9</td><td>8</td><td>观察 A</td></tr>
+                <tr><td>10</td><td>8</td><td>观察 B</td></tr>
+              </tbody>
+            </table>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>2. 预览并保存角色包</h2>
+          <p>最终画布永远是现有导入器要求的 1536×2288（8×11、单格 192×208）。格线只用于预览，不会写入图片。</p>
+        </div>
+        <div class="panel-body">
+          <div class="preview-area">
+            <div class="preview-stack">
+              <canvas id="atlasCanvas" width="1536" height="2288"></canvas>
+              <canvas id="gridCanvas" width="1536" height="2288"></canvas>
+            </div>
+            <div id="emptyPreview" class="empty-preview">还没有图集。<br />生成一个，或者导入外部生成结果。</div>
+          </div>
+          <div class="actions">
+            <label><input id="gridToggle" type="checkbox" checked /> 显示格线</label>
+            <button id="saveBtn" class="primary" disabled>保存为角色包</button>
+            <button id="openFolderBtn">打开 generated-pets</button>
+          </div>
+          <div id="rightNotice" class="notice"></div>
+          <div id="identityBox" class="identity">
+            <img id="identityImg" alt="identity anchor" />
+            <div><strong>Identity anchor</strong><span>稳定模式先生成这张角色身份锚点，再让后续动作组只围绕它做动画变化；这就是多张参考图与最终动作之间的“角色锁”。</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="busy" class="busy">
+    <div class="busy-card"><strong id="busyTitle">正在生成…</strong><p id="busyText">图像生成可能需要几分钟。稳定模式会顺序生成多张，避免并发把速率限制打满。</p></div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const atlasCanvas = $('atlasCanvas');
+    const atlasCtx = atlasCanvas.getContext('2d');
+    const gridCanvas = $('gridCanvas');
+    const gridCtx = gridCanvas.getContext('2d');
+    const state = { status: null, refs: [], plan: null, generation: null, savedPath: null, hasAtlas: false };
+
+    function showNotice(el, text, kind = '') {
+      el.textContent = text || '';
+      el.className = `notice${kind ? ` ${kind}` : ''}`;
+      el.style.display = text ? 'block' : 'none';
+    }
+
+    function setBusy(on, title, text) {
+      $('busy').style.display = on ? 'grid' : 'none';
+      if (title) $('busyTitle').textContent = title;
+      if (text) $('busyText').textContent = text;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        method: options.method || 'GET',
+        headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+      return payload;
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function imageFromDataUrl(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('生成图片无法载入。'));
+        img.src = dataUrl;
+      });
+    }
+
+    function generatedDataUrl(image) {
+      return `data:${image.mime || 'image/png'};base64,${image.base64}`;
+    }
+
+    function drawGrid() {
+      gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
+      gridCtx.save();
+      gridCtx.strokeStyle = 'rgba(141, 38, 56, .55)';
+      gridCtx.lineWidth = 2;
+      for (let x = 0; x <= 1536; x += 192) {
+        gridCtx.beginPath(); gridCtx.moveTo(x, 0); gridCtx.lineTo(x, 2288); gridCtx.stroke();
+      }
+      for (let y = 0; y <= 2288; y += 208) {
+        gridCtx.beginPath(); gridCtx.moveTo(0, y); gridCtx.lineTo(1536, y); gridCtx.stroke();
+      }
+      gridCtx.restore();
+    }
+
+    function clearAtlas() {
+      atlasCtx.clearRect(0, 0, 1536, 2288);
+      state.hasAtlas = false;
+      $('saveBtn').disabled = true;
+      $('emptyPreview').style.display = 'grid';
+    }
+
+    function markAtlasReady() {
+      state.hasAtlas = true;
+      $('saveBtn').disabled = false;
+      $('emptyPreview').style.display = 'none';
+    }
+
+    async function drawSingleAtlas(imagePayload) {
+      const img = await imageFromDataUrl(generatedDataUrl(imagePayload));
+      atlasCtx.clearRect(0, 0, 1536, 2288);
+      atlasCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, 1536, 2288);
+      markAtlasReady();
+    }
+
+    async function drawGroups(groups) {
+      atlasCtx.clearRect(0, 0, 1536, 2288);
+      for (const group of groups) {
+        const img = await imageFromDataUrl(generatedDataUrl(group.image));
+        const [requestedW, requestedH] = group.requestedSize.split('x').map(Number);
+        const crop = group.crop;
+        const sxScale = img.naturalWidth / requestedW;
+        const syScale = img.naturalHeight / requestedH;
+        const destY = group.startRow * 208;
+        atlasCtx.drawImage(
+          img,
+          crop.x * sxScale,
+          crop.y * syScale,
+          crop.width * sxScale,
+          crop.height * syScale,
+          0,
+          destY,
+          1536,
+          (group.endRow - group.startRow + 1) * 208,
+        );
+      }
+      markAtlasReady();
+    }
+
+    async function drawManualFile(file) {
+      const dataUrl = await fileToDataUrl(file);
+      const img = await imageFromDataUrl(dataUrl);
+      atlasCtx.clearRect(0, 0, 1536, 2288);
+      atlasCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, 1536, 2288);
+      state.generation = { plan: { mode: 'manual', strategy: 'external-image-import', model: 'external', referenceCount: state.refs.length } };
+      $('identityBox').style.display = 'none';
+      markAtlasReady();
+      showNotice($('rightNotice'), `已导入 ${file.name}，并在本机画布归一化到 1536×2288。请检查格线里的角色有没有跨格，再保存角色包。`, 'warn');
+    }
+
+    function renderRefs() {
+      const list = $('refList');
+      list.replaceChildren();
+      for (let i = 0; i < state.refs.length; i++) {
+        const ref = state.refs[i];
+        const box = document.createElement('div');
+        box.className = 'ref';
+        const img = document.createElement('img');
+        img.src = ref.dataUrl;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+          state.refs.splice(i, 1);
+          renderRefs();
+          refreshPlan().catch(() => {});
+        });
+        box.append(img, remove);
+        list.appendChild(box);
+      }
+    }
+
+    async function refreshPlan() {
+      const mode = $('mode').value;
+      const body = {
+        name: $('petName').value.trim() || 'Custom Pet',
+        id: $('petId').value.trim(),
+        description: $('description').value.trim(),
+        referenceCount: state.refs.length,
+        mode,
+      };
+      const payload = await api('/api/plan', { method: 'POST', body });
+      state.plan = payload.plan;
+      const p = payload.plan;
+      $('planMeta').innerHTML = [
+        `<span class="meta-chip">策略：${p.strategy}</span>`,
+        `<span class="meta-chip">预计图片调用：${p.estimatedImageCalls}</span>`,
+        `<span class="meta-chip">参考图：${p.referenceCount}</span>`,
+        `<span class="meta-chip">最终：1536×2288</span>`,
+      ].join('');
+      const promptSections = [];
+      if (p.identityPrompt) promptSections.push(`=== IDENTITY ANCHOR ===\n${p.identityPrompt}`);
+      if (p.groups?.length) {
+        for (const g of p.groups) promptSections.push(`=== ROWS ${g.startRow}-${g.endRow} / ${g.size} ===\n${g.prompt}`);
+      } else if (p.fullAtlasPrompt) {
+        promptSections.push(`=== FULL ATLAS ===\n${p.fullAtlasPrompt}`);
+      }
+      $('promptBox').value = promptSections.join('\n\n');
+      const stable = mode === 'stable';
+      $('modeHint').textContent = mode === 'manual'
+        ? '不调用 API：只准备完整 prompt。你可以去 ChatGPT 或任何支持图像生成/编辑的工具生成，再把结果导回来。'
+        : stable
+          ? `当前策略：${p.strategy}，预计 ${p.estimatedImageCalls} 次图片调用。服务器会自动处理“多参考图不被端点接受”时的单参考降级。`
+          : '快速模式只做一次整图生成，便宜和快，但 11 行动作之间的角色一致性、格子几何通常不如稳定模式。';
+      return payload;
+    }
+
+    async function generate() {
+      showNotice($('leftNotice'), '');
+      showNotice($('rightNotice'), '');
+      const name = $('petName').value.trim();
+      const description = $('description').value.trim();
+      const mode = $('mode').value;
+      if (!name) return showNotice($('leftNotice'), '请先给宠物起一个名字。', 'error');
+      if (!description) return showNotice($('leftNotice'), '请写一段角色介绍。', 'error');
+      if (mode === 'manual') {
+        await refreshPlan();
+        showNotice($('leftNotice'), '手动模式已生成完整 prompt。复制它和参考图去你常用的图像生成工具；完成后用“导入外部生成的图集”。', 'warn');
+        return;
+      }
+      if (!state.status?.hasApiKey) {
+        return showNotice($('leftNotice'), '当前 Pet Studio 启动时没有检测到 OPENAI_API_KEY。请设置环境变量并重启 Studio，或者使用手动模式。', 'error');
+      }
+      setBusy(true, mode === 'stable' ? '正在锁定角色并生成动作组…' : '正在生成整张图集…', mode === 'stable' ? '稳定模式会先生成 identity anchor，再顺序生成 4 个动作组。通常需要几分钟，请保持此窗口打开。' : '快速模式只调用一次图像模型。');
+      $('generateBtn').disabled = true;
+      try {
+        const payload = await api('/api/generate', {
+          method: 'POST',
+          body: {
+            name,
+            id: $('petId').value.trim(),
+            description,
+            mode,
+            references: state.refs.map((r) => ({ name: r.name, dataUrl: r.dataUrl })),
+          },
+        });
+        state.generation = payload;
+        state.plan = payload.plan;
+        if (payload.identityAnchor) {
+          $('identityImg').src = generatedDataUrl(payload.identityAnchor);
+          $('identityBox').style.display = 'grid';
+        } else {
+          $('identityBox').style.display = 'none';
+        }
+        if (payload.result.type === 'groups') await drawGroups(payload.result.groups);
+        else await drawSingleAtlas(payload.result.image);
+        const warningText = payload.warnings?.length ? `\n\n降级/提示：\n- ${payload.warnings.join('\n- ')}` : '';
+        showNotice($('rightNotice'), `生成完成。请打开格线检查每个动作有没有跨格；满意后点“保存为角色包”。${warningText}`, payload.warnings?.length ? 'warn' : '');
+        await refreshPlan();
+      } catch (err) {
+        showNotice($('leftNotice'), err.message, 'error');
+      } finally {
+        $('generateBtn').disabled = false;
+        setBusy(false);
+      }
+    }
+
+    async function savePack() {
+      if (!state.hasAtlas) return;
+      showNotice($('rightNotice'), '');
+      $('saveBtn').disabled = true;
+      try {
+        const plan = state.generation?.plan || state.plan || { mode: 'manual', strategy: 'external-image-import', model: 'external', referenceCount: state.refs.length };
+        const payload = await api('/api/save-pack', {
+          method: 'POST',
+          body: {
+            name: $('petName').value.trim() || 'Custom Pet',
+            id: $('petId').value.trim(),
+            description: $('description').value.trim(),
+            imageDataUrl: atlasCanvas.toDataURL('image/png'),
+            mode: plan.mode,
+            generationMeta: {
+              model: plan.model,
+              mode: plan.mode,
+              strategy: plan.strategy,
+              referenceCount: plan.referenceCount,
+            },
+          },
+        });
+        state.savedPath = payload.path;
+        showNotice($('rightNotice'), `角色包已保存：\n${payload.path}\n\n文件：${payload.files.join('、')}\n回到桌宠控制面板 → 角色 → “导入角色包”，选择这个文件夹即可。`);
+      } catch (err) {
+        showNotice($('rightNotice'), err.message, 'error');
+      } finally {
+        $('saveBtn').disabled = !state.hasAtlas;
+      }
+    }
+
+    $('refInput').addEventListener('change', async (event) => {
+      const files = [...event.target.files];
+      const room = Math.max(0, 3 - state.refs.length);
+      const picked = files.slice(0, room);
+      for (const file of picked) {
+        state.refs.push({ name: file.name, dataUrl: await fileToDataUrl(file) });
+      }
+      if (files.length > room) showNotice($('leftNotice'), '最多使用 3 张参考图，额外文件已忽略。', 'warn');
+      event.target.value = '';
+      renderRefs();
+      refreshPlan().catch(() => {});
+    });
+
+    $('manualAtlasInput').addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try { await drawManualFile(file); } catch (err) { showNotice($('rightNotice'), err.message, 'error'); }
+      event.target.value = '';
+    });
+
+    $('planBtn').addEventListener('click', () => refreshPlan().catch((err) => showNotice($('leftNotice'), err.message, 'error')));
+    $('generateBtn').addEventListener('click', generate);
+    $('saveBtn').addEventListener('click', savePack);
+    $('copyPromptBtn').addEventListener('click', async () => {
+      if (!$('promptBox').value) await refreshPlan();
+      await navigator.clipboard.writeText($('promptBox').value);
+      showNotice($('leftNotice'), '提示词已复制。');
+    });
+    $('gridToggle').addEventListener('change', () => { gridCanvas.style.display = $('gridToggle').checked ? 'block' : 'none'; });
+    $('mode').addEventListener('change', () => refreshPlan().catch(() => {}));
+    $('openFolderBtn').addEventListener('click', async () => {
+      try {
+        await api('/api/open-folder', { method: 'POST', body: { path: state.savedPath || state.status?.generatedRoot } });
+      } catch (err) { showNotice($('rightNotice'), err.message, 'error'); }
+    });
+
+    async function init() {
+      drawGrid();
+      clearAtlas();
+      try {
+        state.status = await api('/api/status');
+        $('modelText').textContent = state.status.model;
+        $('qualityText').textContent = state.status.quality;
+        $('keyPill').textContent = state.status.hasApiKey ? '已检测到' : '未设置';
+        $('keyPill').className = `pill${state.status.hasApiKey ? '' : ' warn'}`;
+        if (!state.status.hasApiKey) {
+          showNotice($('leftNotice'), '没有检测到 OPENAI_API_KEY：API 生成暂不可用，但手动模式、外部图集导入和角色包打包都可以使用。', 'warn');
+        }
+        await refreshPlan();
+      } catch (err) {
+        showNotice($('leftNotice'), `Pet Studio 初始化失败：${err.message}`, 'error');
+      }
+    }
+    init();
+  </script>
+</body>
+</html>
