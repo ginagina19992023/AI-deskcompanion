@@ -1,0 +1,106 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pet Atlas Preview</title>
+<style>
+  body { background: #161013; color: #e8dfe2; font: 14px system-ui, sans-serif; padding: 20px; }
+  h2 { font-weight: 600; margin: 24px 0 8px; color: #ff8fa3; }
+  canvas { image-rendering: pixelated; }
+  .stage { background: #241a20; border: 1px solid #5c2733; border-radius: 6px; }
+  .strip { overflow-x: auto; background: #241a20; border: 1px solid #3a2730; border-radius: 6px; padding: 4px; }
+  label { display: block; margin: 14px 0 6px; }
+  input[type=range] { width: 520px; vertical-align: middle; }
+  .val { color: #ff5a7a; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hint { color: #9a8792; margin: 4px 0 0; }
+  select { background: #241a20; color: #e8dfe2; border: 1px solid #5c2733; padding: 4px 8px; border-radius: 4px; }
+  .err { color: #ff5a7a; }
+</style>
+
+<label>宠物
+  <select id="pet">
+    <option value="./atlas/sebastian-raven.webp">塞巴斯蒂安鸦宠</option>
+    <option value="./atlas/ciel-young-master.webp">夏尔少爷</option>
+  </select>
+</label>
+
+<h2>转头映射</h2>
+<label>yaw <span class="val" id="yawOut">0</span>° &nbsp; → &nbsp; frame k = <span class="val" id="kOut">0</span>
+  <input id="yaw" type="range" min="-90" max="90" value="0" step="0.5">
+</label>
+<p class="hint">拖到 <b>+90</b> 应露<b>右</b>侧脸（k=4）；拖到 <b>−90</b> 应露<b>左</b>侧脸（k=12）；<b>0</b> 为正脸（k=0）。左右反了就翻转 head.js 里 yawToCursor 的 dx 符号。</p>
+<canvas id="head" class="stage" width="384" height="416"></canvas>
+
+<h2>全部 11 行</h2>
+<div id="rows"></div>
+
+<script type="module">
+import { ATLAS, ROW_FRAME_COUNTS, frameRect, headFrameRect } from '../src/atlas.js';
+import { yawToFrame } from '../src/head.js';
+
+const ROW_LABELS = [
+  'idle', 'running-right', 'running-left', 'waving', 'jumping',
+  'failed', 'waiting', 'running', 'review',
+  'look-000-to-157.5', 'look-180-to-337.5',
+];
+
+const headCanvas = document.getElementById('head');
+const hg = headCanvas.getContext('2d');
+const yawInput = document.getElementById('yaw');
+const petSelect = document.getElementById('pet');
+const rowsHolder = document.getElementById('rows');
+let sheet = null;
+
+function drawHead() {
+  const k = yawToFrame(Number(yawInput.value));
+  document.getElementById('yawOut').textContent = yawInput.value;
+  document.getElementById('kOut').textContent = k;
+  hg.clearRect(0, 0, headCanvas.width, headCanvas.height);
+  if (!sheet) return;
+  const { sx, sy, sw, sh } = headFrameRect(k);
+  hg.drawImage(sheet, sx, sy, sw, sh, 0, 0, sw * 2, sh * 2);
+}
+
+function drawRows() {
+  rowsHolder.textContent = '';
+  if (!sheet) return;
+  for (let r = 0; r < ATLAS.rows; r++) {
+    const n = ROW_FRAME_COUNTS[r];
+    const c = document.createElement('canvas');
+    c.width = n * ATLAS.cellW;
+    c.height = ATLAS.cellH;
+    const g = c.getContext('2d');
+    for (let col = 0; col < n; col++) {
+      const { sx, sy, sw, sh } = frameRect(r, col);
+      g.drawImage(sheet, sx, sy, sw, sh, col * sw, 0, sw, sh);
+    }
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<div class="hint">row ${r} — ${ROW_LABELS[r]} — ${n} frames</div>`;
+    const strip = document.createElement('div');
+    strip.className = 'strip';
+    strip.appendChild(c);
+    wrap.appendChild(strip);
+    rowsHolder.appendChild(wrap);
+  }
+}
+
+async function load(url) {
+  const img = new Image();
+  img.src = url;
+  try {
+    await img.decode();
+  } catch {
+    rowsHolder.innerHTML =
+      '<p class="err">图集加载失败。这个页面必须通过 HTTP 打开（ES 模块与图片在 file:// 下会被 CORS 拦截）：' +
+      '在项目根目录运行 <code>npm run preview</code>，再访问 ' +
+      '<code>http://127.0.0.1:8731/tools/preview.html</code>。' +
+      '若图集副本缺失，先运行 <code>npm run sync-atlas</code>。</p>';
+    return;
+  }
+  sheet = img;
+  drawHead();
+  drawRows();
+}
+
+yawInput.addEventListener('input', drawHead);
+petSelect.addEventListener('change', () => load(petSelect.value));
+load(petSelect.value);
+</script>
