@@ -2,13 +2,13 @@
 
 Pet Studio turns a short character description plus 0–3 reference images into a pet pack that the existing **角色 → 导入角色包** flow can already consume.
 
-The generator does **not** replace the current pet-pack contract. It deliberately produces the same files the app already understands:
+The generator does **not** replace the current pet-pack contract. It produces the same files the app already understands:
 
 ```text
 generated-pets/<pet-id>/
-  spritesheet.png   # 1536x2288, 8 columns x 11 base rows
+  spritesheet.png   # final true-alpha PNG, 1536x2288, 8 columns x 11 base rows
   pack.json         # character metadata + generic behavior defaults
-  generation.json   # local generation provenance (model/mode/reference count)
+  generation.json   # local generation provenance (model/mode/background strategy/reference count)
 ```
 
 `generated-pets/` is ignored by Git because generated art and character descriptions are user data.
@@ -58,7 +58,32 @@ PET_STUDIO_PORT        default: 8732
 PET_STUDIO_NO_OPEN=1   do not auto-open the browser
 ```
 
-The default is `gpt-image-2` because the current API model accepts image inputs/edits and flexible image sizes, which lets the Studio request the exact sprite geometry instead of relying only on post-resizing.
+The default is `gpt-image-2` because the current Image API model supports multiple image inputs and flexible `WIDTHxHEIGHT` sizes. That lets the Studio request the exact sprite geometry and use several references for identity-sensitive generation.
+
+## Transparency strategy
+
+The final pet pack is always a real transparent PNG, but the generation path depends on the selected model.
+
+### `gpt-image-2`: chroma key → local alpha
+
+The current Image API does **not** support `background=transparent` for `gpt-image-2`, and its image inputs are always high fidelity (the API also does not accept an explicit `input_fidelity` field for this model).
+
+Pet Studio therefore keeps `gpt-image-2` for its stronger generation/editing and flexible sizes, but asks it for a perfectly flat `#00FF00` background. The browser then:
+
+1. decodes the generated PNG locally,
+2. flood-fills only green pixels connected to the outer canvas edge,
+3. sets those pixels' alpha to zero,
+4. stitches/resizes the cleaned images into the final `1536x2288` transparent canvas.
+
+This is deliberately **not** a global “delete every green pixel” operation. Enclosed green details on the pet are much less likely to be removed because only edge-connected key regions are cleared. The prompt also reserves exact `#00FF00` for the background and asks naturally green characters to use visibly different greens.
+
+### `gpt-image-1.5` / older GPT Image models: native transparency
+
+When a selected model supports `background=transparent`, the server requests native transparent PNG output and keeps `input_fidelity=high` for edit calls.
+
+### Manual mode
+
+Manual mode asks the external image tool for true transparency directly. Imported output is normalized locally and is never sent back to the API.
 
 ## Input
 
@@ -78,24 +103,27 @@ Reference images are held in browser memory and sent to the configured image end
 With `gpt-image-2`, Stable mode is intentionally multi-stage:
 
 1. Build an **identity anchor** from the description + all available references.
-2. Use the identity anchor as the first/high-fidelity image input for four smaller sprite-sheet groups:
+2. Use the identity anchor as the first image input for four smaller sprite-sheet groups:
    - rows 0–2
    - rows 3–5
    - rows 6–8
    - rows 9–10
-3. Stitch those groups locally in the browser into the exact final 1536x2288 atlas.
+3. Remove edge-connected chroma locally from each generated group.
+4. Stitch those cleaned groups locally into the exact final `1536x2288` atlas.
 
 Why: asking one image call to simultaneously solve identity consistency, eleven action rows, exact grid geometry and animation continuity is a lot. Locking identity first and generating smaller row groups makes the constraints more local and easier to satisfy.
 
-The last two-row group is requested as `1536x528`, with the real 416px sprite region at the top and transparent padding below. That keeps the generation request inside the image model's aspect-ratio / minimum-pixel constraints; the browser crops the padding before assembly.
+The first three groups use `1536x624`. The last two-row group needs only 416px of real sprite height, but `1536x416` falls outside the current `gpt-image-2` size constraints, so Pet Studio requests `1536x528`; the top 416px is the two-row sprite region and the bottom 112px is removable background that is cropped before assembly.
+
+Stable mode therefore makes five image calls with `gpt-image-2`: one identity anchor plus four row groups.
 
 ### Fast mode
 
 One image call creates the whole atlas.
 
-With a flexible-size model the Studio requests the exact `1536x2288` canvas. With a legacy fixed-size model it requests a supported portrait size and normalizes the result to `1536x2288` locally.
+With `gpt-image-2`, the Studio requests the exact `1536x2288` canvas, then removes the chroma locally. With a legacy fixed-size model it requests a supported portrait size and normalizes the result to `1536x2288` locally.
 
-Use this for cheap drafts and style exploration. Stable mode is preferable once the character design is close.
+Use this for cheaper drafts and style exploration. Stable mode is preferable once the character design is close.
 
 ### Manual mode / no API
 
@@ -110,7 +138,7 @@ The browser then normalizes it to the required atlas size and packages it normal
 
 ## Multi-reference fallback
 
-The server first attempts the image edit call with all references.
+The server first attempts the image edit call with all references (the UI deliberately limits this product flow to three even though current GPT Image endpoints can accept more).
 
 If an endpoint rejects multi-image input with a request/format error, the Studio automatically retries with a single reference:
 
@@ -144,7 +172,7 @@ Rows generated by the Studio:
 | 9 | 8 | look / turn A |
 | 10 | 8 | look / turn B |
 
-Unused cells in a row are prompted to stay transparent. The UI overlays a grid for inspection; the overlay is **not** baked into `spritesheet.png`.
+Unused cells are prompted to contain only the active removable background (native alpha or chroma key). The UI overlays a grid for inspection; the overlay is **not** baked into `spritesheet.png`.
 
 ## Import into the desktop pet
 
@@ -164,9 +192,10 @@ The generator can enforce geometry in prompts and local assembly, but image mode
 - let limbs cross a cell boundary,
 - duplicate a character inside one cell,
 - drift an accessory/color between actions,
-- produce weak left/right motion distinction.
+- produce weak left/right motion distinction,
+- leave a green fringe or a disconnected chroma island if the generated background is not actually uniform.
 
-That is why Pet Studio keeps the grid visible by default. Treat generation as an art pipeline with inspection, not as a proof that every frame is automatically production-perfect.
+That is why Pet Studio keeps the grid visible by default. Treat generation as an art pipeline with inspection, not as proof that every frame is automatically production-perfect.
 
 Stable mode reduces those failure modes; it does not make them mathematically impossible.
 
@@ -174,8 +203,8 @@ Stable mode reduces those failure modes; it does not make them mathematically im
 
 ```text
 src/pet-generator.js          pure atlas/prompt/pack planning logic
-tools/pet-studio/server.mjs   localhost server + OpenAI image calls + local pack writer
-tools/pet-studio/index.html   browser UI + image stitching/normalization
+tools/pet-studio/server.mjs   localhost server + OpenAI Image API calls + local pack writer
+tools/pet-studio/index.html   browser UI + chroma extraction + image stitching/normalization
 PET-STUDIO.bat                Windows double-click launcher
 test/pet-generator.test.js    generation-contract tests
 ```
