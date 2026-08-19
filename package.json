@@ -8,7 +8,8 @@
     "start": "electron .",
     "test": "node --test",
     "preview": "python -m http.server 8731 --bind 127.0.0.1",
-    "sync-atlas": "node tools/sync-atlas.js"
+    "sync-atlas": "node tools/sync-atlas.js",
+    "pet-studio": "node tools/pet-studio/server.mjs"
   },
   "devDependencies": {
     "electron": "^38.0.0"
