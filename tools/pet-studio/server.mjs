@@ -3,7 +3,12 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { buildGenerationPlan, buildPackJson, slugifyPetId } from '../../src/pet-generator.js';
+import {
+  buildGenerationPlan,
+  buildPackJson,
+  generationBackgroundMode,
+  slugifyPetId,
+} from '../../src/pet-generator.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
@@ -15,7 +20,7 @@ const model = process.env.PET_IMAGE_MODEL || process.env.OPENAI_IMAGE_MODEL || '
 const quality = process.env.PET_IMAGE_QUALITY || 'medium';
 const apiKey = process.env.OPENAI_API_KEY || '';
 const apiBase = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
-const maxJsonBytes = 42 * 1024 * 1024;
+const maxJsonBytes = 72 * 1024 * 1024;
 const maxReferenceBytes = 16 * 1024 * 1024;
 
 mkdirSync(generatedRoot, { recursive: true });
@@ -44,7 +49,7 @@ function readJson(req) {
     req.on('data', (chunk) => {
       total += chunk.length;
       if (total > maxJsonBytes) {
-        reject(new HttpError(413, '请求太大：参考图总数据请控制在约 40MB 内。'));
+        reject(new HttpError(413, '请求太大：参考图的 base64 请求总量请控制在约 70MB 内。'));
         req.destroy();
         return;
       }
@@ -77,6 +82,20 @@ function pngDimensions(buffer) {
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
+function isGptImage2(value = model) {
+  return /^gpt-image-2(?:$|-)/.test(String(value));
+}
+
+function appendSharedImageFields(form, { prompt, size }) {
+  form.append('model', model);
+  form.append('prompt', prompt);
+  form.append('n', '1');
+  form.append('size', size);
+  form.append('quality', quality);
+  form.append('output_format', 'png');
+  if (!isGptImage2()) form.append('background', 'transparent');
+}
+
 async function openAIImage({ prompt, references = [], size, inputFidelity = 'high' }) {
   if (!apiKey) throw new HttpError(400, '没有检测到 OPENAI_API_KEY。可以先用「手动模式」生成提示词，再把外部生成结果导回 Pet Studio。');
   if (typeof fetch !== 'function' || typeof FormData === 'undefined' || typeof Blob === 'undefined') {
@@ -90,14 +109,10 @@ async function openAIImage({ prompt, references = [], size, inputFidelity = 'hig
 
   if (hasReferences) {
     const form = new FormData();
-    form.append('model', model);
-    form.append('prompt', prompt);
-    form.append('n', '1');
-    form.append('size', size);
-    form.append('quality', quality);
-    form.append('background', 'transparent');
-    form.append('output_format', 'png');
-    form.append('input_fidelity', inputFidelity);
+    appendSharedImageFields(form, { prompt, size });
+    // gpt-image-2 image inputs are always high fidelity and reject an
+    // explicit input_fidelity parameter. Older GPT Image models accept it.
+    if (!isGptImage2()) form.append('input_fidelity', inputFidelity);
     for (let i = 0; i < references.length; i++) {
       const ref = references[i];
       form.append('image[]', new Blob([ref.buffer], { type: ref.mime }), ref.name || `reference-${i + 1}.png`);
@@ -105,15 +120,18 @@ async function openAIImage({ prompt, references = [], size, inputFidelity = 'hig
     body = form;
   } else {
     headers['Content-Type'] = 'application/json';
-    body = JSON.stringify({
+    const payload = {
       model,
       prompt,
       n: 1,
       size,
       quality,
-      background: 'transparent',
       output_format: 'png',
-    });
+    };
+    // gpt-image-2 currently rejects background=transparent; its prompt uses
+    // a chroma key and the browser turns edge-connected key pixels into alpha.
+    if (!isGptImage2()) payload.background = 'transparent';
+    body = JSON.stringify(payload);
   }
 
   const response = await fetch(endpoint, { method: 'POST', headers, body });
@@ -254,6 +272,7 @@ function savePack(body) {
       quality,
       mode: body.generationMeta?.mode || body.mode || 'manual-import',
       strategy: body.generationMeta?.strategy || null,
+      backgroundMode: body.generationMeta?.backgroundMode || generationBackgroundMode(body.generationMeta?.model || model),
       referenceCount: Number(body.generationMeta?.referenceCount) || 0,
       description,
     }, null, 2)}\n`,
@@ -316,6 +335,7 @@ const server = createServer(async (req, res) => {
         hasApiKey: !!apiKey,
         model,
         quality,
+        backgroundMode: generationBackgroundMode(model),
         generatedRoot,
         apiBaseHost: (() => {
           try { return new URL(apiBase).host; } catch { return 'custom'; }
@@ -365,6 +385,7 @@ server.listen(port, host, () => {
   console.log('AI Desk Companion · Pet Studio');
   console.log(`  ${url}`);
   console.log(`  model: ${model} / quality: ${quality}`);
+  console.log(`  background: ${generationBackgroundMode(model)}${isGptImage2() ? ' (local chroma → alpha)' : ' (native API transparency)'}`);
   console.log(`  OPENAI_API_KEY: ${apiKey ? 'detected' : 'not set (manual mode still works)'}`);
   console.log(`  output: ${generatedRoot}`);
   console.log('');
