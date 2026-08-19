@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {
   PET_ATLAS,
   BASE_ROW_SPECS,
+  CHROMA_KEY,
   STABLE_GROUPS,
   buildGenerationPlan,
   buildPackJson,
   buildFullAtlasPrompt,
+  generationBackgroundMode,
   modelSupportsFlexibleImageSize,
   slugifyPetId,
 } from '../src/pet-generator.js';
@@ -32,42 +34,55 @@ test('stable row groups cover every base row and crop back to 2288 px exactly', 
   assert.equal(STABLE_GROUPS.at(-1).crop.height, 416);
 });
 
-test('gpt-image-2 uses exact flexible atlas size in fast mode', () => {
+test('gpt-image-2 uses flexible sizes and local chroma extraction', () => {
+  assert.equal(modelSupportsFlexibleImageSize('gpt-image-2'), true);
+  assert.equal(generationBackgroundMode('gpt-image-2'), 'chroma-key');
   const plan = buildGenerationPlan({ name: 'Mochi', description: 'cream cat', referenceCount: 2, mode: 'fast', model: 'gpt-image-2' });
   assert.equal(plan.strategy, 'single-atlas-call');
   assert.equal(plan.requestSize, '1536x2288');
   assert.equal(plan.referenceCount, 2);
+  assert.equal(plan.backgroundMode, 'chroma-key');
+  assert.match(plan.fullAtlasPrompt, new RegExp(CHROMA_KEY.replace('#', '\\#'), 'i'));
+  assert.match(plan.fullAtlasPrompt, /chroma-key/i);
 });
 
-test('stable gpt-image-2 mode locks identity then produces four row groups', () => {
+test('stable gpt-image-2 mode locks identity then produces four chroma-key row groups', () => {
   const plan = buildGenerationPlan({ name: 'Mochi', description: 'cream cat', referenceCount: 3, mode: 'stable', model: 'gpt-image-2' });
   assert.equal(plan.strategy, 'identity-anchor-plus-row-groups');
+  assert.equal(plan.backgroundMode, 'chroma-key');
   assert.equal(plan.estimatedImageCalls, 5);
   assert.equal(plan.groups.length, 4);
   assert.match(plan.identityPrompt, /CHARACTER IDENTITY BOARD/);
+  assert.match(plan.identityPrompt, /RGB 0,255,0/);
   assert.match(plan.groups[0].prompt, /PRIMARY visual authority/);
+  assert.match(plan.groups[0].prompt, /chroma-key/i);
 });
 
-test('legacy image models get the identity-anchor fallback without flexible group sizes', () => {
+test('legacy image models keep native transparency and fixed-size fallback', () => {
   assert.equal(modelSupportsFlexibleImageSize('gpt-image-1.5'), false);
+  assert.equal(generationBackgroundMode('gpt-image-1.5'), 'transparent');
   const plan = buildGenerationPlan({ name: 'Mochi', description: 'cream cat', mode: 'stable', model: 'gpt-image-1.5' });
   assert.equal(plan.strategy, 'identity-anchor-plus-single-atlas');
+  assert.equal(plan.backgroundMode, 'transparent');
   assert.equal(plan.requestSize, '1024x1536');
   assert.equal(plan.estimatedImageCalls, 2);
+  assert.match(plan.fullAtlasPrompt, /full transparency/i);
 });
 
-test('manual mode produces a full prompt without an image call', () => {
+test('manual mode produces a native-transparent full prompt without an image call', () => {
   const plan = buildGenerationPlan({ name: 'Mochi', description: 'cream cat', mode: 'manual', model: 'gpt-image-2' });
   assert.equal(plan.strategy, 'prompt-and-import');
+  assert.equal(plan.backgroundMode, 'transparent');
   assert.equal(plan.estimatedImageCalls, 0);
   assert.match(plan.fullAtlasPrompt, /1536x2288/);
+  assert.match(plan.fullAtlasPrompt, /zero alpha/i);
 });
 
 test('full atlas prompt carries row geometry and transparent-unused-cell rule', () => {
-  const prompt = buildFullAtlasPrompt({ name: 'Mochi', description: 'cream cat', referenceCount: 1 });
+  const prompt = buildFullAtlasPrompt({ name: 'Mochi', description: 'cream cat', referenceCount: 1, backgroundMode: 'transparent' });
   assert.match(prompt, /8 columns x 11 rows/);
   assert.match(prompt, /192x208/);
-  assert.match(prompt, /Unused cells.*fully transparent/);
+  assert.match(prompt, /unused cell.*full transparency/i);
 });
 
 test('pack.json produced by Studio is accepted by the current generic importer shape', () => {
