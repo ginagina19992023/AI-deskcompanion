@@ -479,6 +479,8 @@ chatEnabledEl.addEventListener('change', (e) => {
     group.style.display = e.target.checked ? 'block' : 'none';
   }
   chatVoiceModeHint.style.display = e.target.checked ? 'block' : 'none';
+  chatOllamaGroup.style.display = e.target.checked && chatProviderEl.value === 'ollama' ? 'block' : 'none';
+  chatModelGroup.style.display = e.target.checked ? 'block' : 'none';
 });
 
 chatVoiceModeEl.addEventListener('change', (e) => {
@@ -561,7 +563,8 @@ function renderSettings(settings) {
     group.style.display = !!settings.chatEnabled ? 'block' : 'none';
   }
   chatVoiceModeHint.style.display = !!settings.chatEnabled ? 'block' : 'none';
-  chatOllamaGroup.style.display = (settings.chatProvider ?? 'ollama') === 'ollama' ? 'block' : 'none';
+  chatOllamaGroup.style.display = !!settings.chatEnabled && (settings.chatProvider ?? 'ollama') === 'ollama' ? 'block' : 'none';
+  chatModelGroup.style.display = !!settings.chatEnabled ? 'block' : 'none';
 }
 
 window.dash.getModels().then(({ models }) => populateModelDatalist(models));
