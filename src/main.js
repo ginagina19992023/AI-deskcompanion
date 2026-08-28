@@ -9,6 +9,7 @@ import { ATLAS, BASE_ROWS } from './atlas.js';
 import { companionAnchor } from './companion.js';
 import { createCompanionWatcher } from './companion-watcher.js';
 import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } from './screen-tip.js';
+import { createCameraSenseWatcher } from './camera-sense.js';
 import { streamChatReply } from './chat.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
 import { connectOutlookAccount, disconnectOutlookAccount, getOutlookAccountStatus, syncOnce as syncOutlookOnce, deleteOutlookTask } from './outlook-sync.js';
@@ -124,6 +125,9 @@ function clearBubbleGrowthForPanel() {
 let companion = null;
 let lastCompanionLog = 0;
 let screenTipWatcher = null;
+let cameraSenseWatcher = null;
+let cameraFrameRequestId = 0;
+const pendingCameraFrameRequests = new Map(); // requestId -> {resolve, reject}
 let screenTipsPaused = false;
 let workSupervisionWatcher = null;
 let consecutiveSlackCount = 0;
@@ -538,6 +542,52 @@ function stopScreenTips() {
   screenTipWatcher = null;
 }
 
+function requestCameraFrame() {
+  return new Promise((resolve, reject) => {
+    if (!alive()) return resolve(null);
+    const requestId = ++cameraFrameRequestId;
+    const timer = setTimeout(() => {
+      pendingCameraFrameRequests.delete(requestId);
+      resolve(null); // renderer never answered (e.g. permission denied) -- don't hang the watcher
+    }, 8000);
+    pendingCameraFrameRequests.set(requestId, {
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
+    win.webContents.send('pet:camera-frame-request', { requestId });
+  });
+}
+
+function startCameraSense() {
+  if (cameraSenseWatcher) return;
+  cameraSenseWatcher = createCameraSenseWatcher({
+    cfg: cfg.cameraSense,
+    getFrame: requestCameraFrame,
+    isPaused: () => false,
+    onTip: (tip) => {
+      if (cfg.debug) console.log('[camera-sense] got tip:', tip.text);
+      saveScreenTip(tip); // tip.source is already 'camera', see camera-sense.js
+      if (alive()) win.webContents.send('pet:screen-tip', { text: tip.text, ts: tip.ts });
+    },
+    onError: (err) => {
+      if (cfg.debug) console.error('[camera-sense]', err.message);
+    },
+  });
+}
+
+function stopCameraSense() {
+  cameraSenseWatcher?.stop();
+  cameraSenseWatcher = null;
+}
+
+ipcMain.on('pet:camera-frame-response', (_e, { requestId, base64, error } = {}) => {
+  const pending = pendingCameraFrameRequests.get(requestId);
+  if (!pending) return;
+  pendingCameraFrameRequests.delete(requestId);
+  if (error) pending.reject(new Error(error));
+  else pending.resolve(base64 ?? null);
+});
+
 function startWorkSupervision() {
   if (workSupervisionWatcher) return;
   workSupervisionWatcher = createScreenTipWatcher({
@@ -927,6 +977,16 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       break;
     case 'screenTipsApiKeyEnv':
       if (cfg.screenTips) cfg.screenTips.apiKeyEnv = value;
+      break;
+    case 'cameraSenseEnabled':
+      cfg.cameraSense = cfg.cameraSense ?? {};
+      cfg.cameraSense.enabled = !!value;
+      if (value) startCameraSense();
+      else stopCameraSense();
+      break;
+    case 'cameraSenseIntervalMs':
+      cfg.cameraSense = cfg.cameraSense ?? {};
+      cfg.cameraSense.intervalMs = Math.max(30000, Number(value) || 120000);
       break;
     case 'screenTipsEnabled':
       // The master on/off, distinct from screenTipsPaused (a runtime-only
@@ -3656,6 +3716,7 @@ app.whenReady().then(() => {
   }
 
   if (cfg.screenTips?.enabled) startScreenTips();
+  if (cfg.cameraSense?.enabled) startCameraSense();
 
   if (cfg.workSupervision?.enabled) startWorkSupervision();
   if (cfg.dailySummary?.enabled) startDailySummaryTimer();
@@ -3701,6 +3762,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   companion?.stop();
   screenTipWatcher?.stop();
+  cameraSenseWatcher?.stop();
   workSupervisionWatcher?.stop();
   stopDailySummaryTimer();
   stopAudioNod();

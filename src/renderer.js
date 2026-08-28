@@ -1236,6 +1236,32 @@ window.pet.onScreenTip((tip) => {
   }
 });
 
+// Camera-sense: main process asks (over IPC) for one webcam frame at a
+// time; only the renderer has getUserMedia. Stream is opened just long
+// enough to grab a single frame, then immediately stopped -- never left
+// running between captures.
+window.pet.onCameraFrameRequest(async ({ requestId }) => {
+  let base64 = null;
+  let error = null;
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const track = stream.getVideoTracks()[0];
+    const capture = new ImageCapture(track);
+    const bitmap = await capture.grabFrame();
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0);
+    base64 = canvas.toDataURL('image/png').split(',')[1];
+  } catch (err) {
+    error = err.message;
+  } finally {
+    stream?.getTracks().forEach((t) => t.stop()); // never leave the camera open
+  }
+  window.pet.sendCameraFrameResponse({ requestId, base64, error });
+});
+
 const CHAT_REPLY_DISPLAY_MS = 12000;
 window.pet.onChatReply((msg) => {
   const text = msg?.text || msg?.error;

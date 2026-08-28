@@ -160,6 +160,25 @@
     "tenantId": "common",
     "intervalMs": 600000
   },
+  "cameraSense": {
+    "_what": "定期拍一张摄像头画面，交给本地视觉模型看用户在不在/情绪，结果和屏幕观察共用同一套气泡与历史记录（source 标为 camera）。独立开关、独立频率，跟屏幕观察互不影响。默认关闭，画面走本地 Ollama 不出机器。",
+    "enabled": false,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "model": "minicpm-v",
+    "prompt": "Describe the person in this webcam photo in one short sentence -- are they present, and what's their apparent mood?",
+    "intervalMs": 120000,
+    "timeoutMs": 90000
+  },
+  "voice": {
+    "_what": "宠物开口说话（浏览器自带 speechSynthesis，本地系统语音，不联网）+ 按键说话/通话模式语音输入（Windows 自带 SAPI 中文听写，通过 tools/voice-stt.ps1 离线识别，音频不进 Electron 进程）。默认关闭。",
+    "enabled": false,
+    "voiceName": "",
+    "rate": 1.0,
+    "pitch": 1.0,
+    "volume": 1.0,
+    "pushToTalkKey": "F9"
+  },
   "companion": {
     "_what": "感知 Codex/ChatGPT 桌宠的覆盖层窗口位置。纯只读：只向 Windows 查询窗口矩形，不接触、不注入、不修改 Codex 进程。找不到就安静回落到普通行为。",
     "enabled": true,

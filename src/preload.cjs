@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('pet', {
   onPermissionRequest: (fn) => ipcRenderer.on('pet:permission-request', (_e, d) => fn(d)),
   onPermissionResolved: (fn) => ipcRenderer.on('pet:permission-resolved', (_e, requestId) => fn(requestId)),
   onScreenTip: (fn) => ipcRenderer.on('pet:screen-tip', (_e, d) => fn(d)),
+  onCameraFrameRequest: (fn) => ipcRenderer.on('pet:camera-frame-request', (_e, d) => fn(d)),
+  sendCameraFrameResponse: (payload) => ipcRenderer.send('pet:camera-frame-response', payload),
   onReplyBoxCloseForced: (fn) => ipcRenderer.on('pet:reply-box-close-forced', () => fn()),
   onBubbleLayout: (fn) => ipcRenderer.on('pet:bubble-layout', (_e, d) => fn(d)),
   onBeat: (fn) => ipcRenderer.on('pet:beat', (_e, d) => fn(d)),
