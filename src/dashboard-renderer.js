@@ -420,6 +420,84 @@ dashCompanionEnabledEl.addEventListener('change', () => window.dash.setSetting('
 dashTipDisplayStackedEl.addEventListener('change', () => window.dash.setSetting('tipDisplayStacked', dashTipDisplayStackedEl.checked));
 dashSoundsEnabledEl.addEventListener('change', () => window.dash.setSetting('soundsEnabled', dashSoundsEnabledEl.checked));
 
+// Voice settings handlers
+const voiceEnabledEl = document.getElementById('voiceEnabled');
+const voiceVolumeEl = document.getElementById('voiceVolume');
+const voiceRateEl = document.getElementById('voiceRate');
+const voicePitchEl = document.getElementById('voicePitch');
+const voicePushToTalkKeyEl = document.getElementById('voicePushToTalkKey');
+const voiceSettingsGroups = [
+  document.getElementById('voiceSettingsGroup'),
+  document.getElementById('voiceSettingsGroup2'),
+  document.getElementById('voiceSettingsGroup3'),
+  document.getElementById('voiceSettingsGroup4'),
+];
+
+voiceEnabledEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceEnabled', e.target.checked);
+  for (const group of voiceSettingsGroups) {
+    group.style.display = e.target.checked ? 'block' : 'none';
+  }
+});
+
+voiceVolumeEl.addEventListener('input', (e) => {
+  window.dash.setSetting('voiceVolume', parseFloat(e.target.value));
+  document.getElementById('voiceVolumeValue').textContent = parseFloat(e.target.value).toFixed(1);
+});
+
+voiceRateEl.addEventListener('input', (e) => {
+  window.dash.setSetting('voiceRate', parseFloat(e.target.value));
+  document.getElementById('voiceRateValue').textContent = parseFloat(e.target.value).toFixed(1);
+});
+
+voicePitchEl.addEventListener('input', (e) => {
+  window.dash.setSetting('voicePitch', parseFloat(e.target.value));
+  document.getElementById('voicePitchValue').textContent = parseFloat(e.target.value).toFixed(1);
+});
+
+voicePushToTalkKeyEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voicePushToTalkKey', e.target.value || 'F9');
+});
+
+// Chat settings handlers
+const chatEnabledEl = document.getElementById('chatEnabled');
+const chatVoiceModeEl = document.getElementById('chatVoiceMode');
+const chatProviderEl = document.getElementById('chatProvider');
+const chatOllamaUrlEl = document.getElementById('chatOllamaUrl');
+const chatModelEl = document.getElementById('chatModel');
+const chatSettingsGroups = [
+  document.getElementById('chatSettingsGroup'),
+  document.getElementById('chatSettingsGroup2'),
+];
+const chatOllamaGroup = document.getElementById('chatOllamaGroup');
+const chatModelGroup = document.getElementById('chatModelGroup');
+const chatVoiceModeHint = document.getElementById('chatVoiceModeHint');
+
+chatEnabledEl.addEventListener('change', (e) => {
+  window.dash.setSetting('chatEnabled', e.target.checked);
+  for (const group of chatSettingsGroups) {
+    group.style.display = e.target.checked ? 'block' : 'none';
+  }
+  chatVoiceModeHint.style.display = e.target.checked ? 'block' : 'none';
+});
+
+chatVoiceModeEl.addEventListener('change', (e) => {
+  window.dash.setSetting('chatVoiceMode', e.target.checked);
+});
+
+chatProviderEl.addEventListener('change', (e) => {
+  window.dash.setSetting('chatProvider', e.target.value);
+  chatOllamaGroup.style.display = e.target.value === 'ollama' ? 'block' : 'none';
+});
+
+chatOllamaUrlEl.addEventListener('change', (e) => {
+  window.dash.setSetting('chatOllamaUrl', e.target.value);
+});
+
+chatModelEl.addEventListener('change', (e) => {
+  window.dash.setSetting('chatModel', e.target.value);
+});
+
 function renderSettings(settings) {
   dashScreenTipModelEl.value = settings.screenTipsModel ?? '';
   dashScreenTipProviderEl.value = settings.screenTipsProvider ?? 'ollama';
@@ -459,6 +537,31 @@ function renderSettings(settings) {
   dashTipDisplayStackedEl.checked = !!settings.tipDisplayStacked;
   dashSoundsEnabledEl.checked = !!settings.soundsEnabled;
   renderSoundFileNames(settings.soundFileNames);
+
+  // Populate voice settings
+  voiceEnabledEl.checked = !!settings.voiceEnabled;
+  voiceVolumeEl.value = settings.voiceVolume ?? 1.0;
+  document.getElementById('voiceVolumeValue').textContent = (settings.voiceVolume ?? 1.0).toFixed(1);
+  voiceRateEl.value = settings.voiceRate ?? 1.0;
+  document.getElementById('voiceRateValue').textContent = (settings.voiceRate ?? 1.0).toFixed(1);
+  voicePitchEl.value = settings.voicePitch ?? 1.0;
+  document.getElementById('voicePitchValue').textContent = (settings.voicePitch ?? 1.0).toFixed(1);
+  voicePushToTalkKeyEl.value = settings.voicePushToTalkKey ?? 'F9';
+  for (const group of voiceSettingsGroups) {
+    group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
+  }
+
+  // Populate chat settings
+  chatEnabledEl.checked = !!settings.chatEnabled;
+  chatVoiceModeEl.checked = !!settings.chatVoiceMode;
+  chatProviderEl.value = settings.chatProvider ?? 'ollama';
+  chatOllamaUrlEl.value = settings.chatOllamaUrl ?? 'http://localhost:11434';
+  chatModelEl.value = settings.chatModel ?? 'gemma4:12b';
+  for (const group of chatSettingsGroups) {
+    group.style.display = !!settings.chatEnabled ? 'block' : 'none';
+  }
+  chatVoiceModeHint.style.display = !!settings.chatEnabled ? 'block' : 'none';
+  chatOllamaGroup.style.display = (settings.chatProvider ?? 'ollama') === 'ollama' ? 'block' : 'none';
 }
 
 window.dash.getModels().then(({ models }) => populateModelDatalist(models));
