@@ -1236,6 +1236,34 @@ window.pet.onScreenTip((tip) => {
   }
 });
 
+// Voice STT: push-to-talk key binding. F9 by default, configurable.
+// On keydown, send START to the STT helper; on keyup, send STOP.
+// Recognized transcripts are routed through the exact same
+// window.pet.chatSend() path as typed input.
+window.addEventListener('keydown', (e) => {
+  const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
+  if (e.key === pttKey && cfg.voice?.enabled && !e.repeat) {
+    window.pet.voicePptStart();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
+  if (e.key === pttKey && cfg.voice?.enabled) {
+    window.pet.voicePptStop();
+  }
+});
+
+// Voice transcript callback: treated identically to a typed message sent
+// via Enter press. Routes through window.pet.chatSend() so it hits all
+// the same downstream chat logic, history, bubble display, etc.
+window.pet.onVoiceTranscript((text) => {
+  if (text) window.pet.chatSend(text);
+});
+
+window.pet.onVoiceCallModeState(({ active }) => {
+  if (cfg.debug) console.log('[voice] call-mode', active ? 'active' : 'inactive');
+});
+
 // Camera-sense: main process asks (over IPC) for one webcam frame at a
 // time; only the renderer has getUserMedia. Stream is opened just long
 // enough to grab a single frame, then immediately stopped -- never left

@@ -10,6 +10,7 @@ import { companionAnchor } from './companion.js';
 import { createCompanionWatcher } from './companion-watcher.js';
 import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } from './screen-tip.js';
 import { createCameraSenseWatcher } from './camera-sense.js';
+import { createVoiceSttWatcher } from './voice-stt.js';
 import { streamChatReply } from './chat.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
 import { connectOutlookAccount, disconnectOutlookAccount, getOutlookAccountStatus, syncOnce as syncOutlookOnce, deleteOutlookTask } from './outlook-sync.js';
@@ -128,6 +129,8 @@ let screenTipWatcher = null;
 let cameraSenseWatcher = null;
 let cameraFrameRequestId = 0;
 const pendingCameraFrameRequests = new Map(); // requestId -> {resolve, reject}
+let voiceSttWatcher = null;
+let voiceCallModeActive = false;
 let screenTipsPaused = false;
 let workSupervisionWatcher = null;
 let consecutiveSlackCount = 0;
@@ -580,6 +583,42 @@ function stopCameraSense() {
   cameraSenseWatcher = null;
 }
 
+function startVoiceStt() {
+  if (voiceSttWatcher) return;
+  voiceSttWatcher = createVoiceSttWatcher({
+    scriptPath: join(__dirname, '..', 'tools', 'voice-stt.ps1'),
+    onTranscript: (text) => {
+      if (cfg.debug) console.log('[voice-stt] transcript:', text);
+      if (alive()) win.webContents.send('pet:voice-transcript', text);
+    },
+    onError: (err) => {
+      if (cfg.debug) console.error('[voice-stt]', err.message);
+      if (alive()) win.webContents.send('pet:voice-error', { message: err.message });
+    },
+  });
+}
+
+function stopVoiceStt() {
+  voiceSttWatcher?.stop();
+  voiceSttWatcher = null;
+}
+
+ipcMain.on('pet:voice-ppt-start', () => {
+  if (!cfg.voice?.enabled) return;
+  startVoiceStt()?.start();
+});
+ipcMain.on('pet:voice-ppt-stop', () => {
+  voiceSttWatcher?.stop();
+});
+ipcMain.on('pet:voice-call-mode-toggle', () => {
+  if (!cfg.voice?.enabled) return;
+  voiceCallModeActive = !voiceCallModeActive;
+  const watcher = startVoiceStt();
+  if (voiceCallModeActive) watcher?.start();
+  else watcher?.stop();
+  if (alive()) win.webContents.send('pet:voice-call-mode-state', { active: voiceCallModeActive });
+});
+
 ipcMain.on('pet:camera-frame-response', (_e, { requestId, base64, error } = {}) => {
   const pending = pendingCameraFrameRequests.get(requestId);
   if (!pending) return;
@@ -983,6 +1022,32 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       cfg.cameraSense.enabled = !!value;
       if (value) startCameraSense();
       else stopCameraSense();
+      break;
+    case 'voiceEnabled':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.enabled = !!value;
+      if (value) startVoiceStt();
+      else stopVoiceStt();
+      break;
+    case 'voiceVolume':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.volume = Math.max(0, Math.min(1, Number(value)));
+      break;
+    case 'voiceRate':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.rate = Math.max(0.1, Math.min(2, Number(value)));
+      break;
+    case 'voicePitch':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.pitch = Math.max(0.1, Math.min(2, Number(value)));
+      break;
+    case 'voiceVoiceName':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.voiceName = value;
+      break;
+    case 'voicePushToTalkKey':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.pushToTalkKey = value;
       break;
     case 'cameraSenseIntervalMs':
       cfg.cameraSense = cfg.cameraSense ?? {};
@@ -1866,6 +1931,12 @@ function dashboardSnapshot() {
       screenTipsEnabled: !!cfg.screenTips?.enabled,
       cameraSenseEnabled: !!cfg.cameraSense?.enabled,
       cameraSenseIntervalMs: cfg.cameraSense?.intervalMs ?? 120000,
+      voiceEnabled: !!cfg.voice?.enabled,
+      voiceVolume: cfg.voice?.volume ?? 1.0,
+      voiceRate: cfg.voice?.rate ?? 1.0,
+      voicePitch: cfg.voice?.pitch ?? 1.0,
+      voiceVoiceName: cfg.voice?.voiceName ?? '',
+      voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'F9',
       chatEnabled: !!cfg.chat?.enabled,
       musicNodEnabled: !!cfg.musicNod?.enabled,
       pomodoroDurationMin: cfg.pomodoro?.durationMin ?? 25,
@@ -3719,6 +3790,7 @@ app.whenReady().then(() => {
 
   if (cfg.screenTips?.enabled) startScreenTips();
   if (cfg.cameraSense?.enabled) startCameraSense();
+  if (cfg.voice?.enabled) startVoiceStt();
 
   if (cfg.workSupervision?.enabled) startWorkSupervision();
   if (cfg.dailySummary?.enabled) startDailySummaryTimer();
@@ -3765,6 +3837,7 @@ app.on('before-quit', () => {
   companion?.stop();
   screenTipWatcher?.stop();
   cameraSenseWatcher?.stop();
+  voiceSttWatcher?.dispose();
   workSupervisionWatcher?.stop();
   stopDailySummaryTimer();
   stopAudioNod();
