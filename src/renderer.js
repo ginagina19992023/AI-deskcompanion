@@ -12,6 +12,8 @@ const CROSSFADE_MS = 140;
 const TRANSFORM_MS = 420;
 const PIVOT_Y = 0.92;
 
+import { speak } from './voice-tts.js';
+
 const cfg = await window.pet.getConfig();
 if (!cfg) throw new Error('config unavailable');
 
@@ -1330,6 +1332,7 @@ window.pet.onBeat(() => {
 window.pet.onMusicComment(({ text } = {}) => {
   if (!text) return;
   speechLine = text;
+  speak(speechLine, cfg.voice);
   speechUntilMs = performance.now() + 7000;
 });
 
@@ -1357,6 +1360,7 @@ window.pet.onPomodoroState(({ active, endsAt }) => {
 
 window.pet.onPomodoroDone(() => {
   speechLine = '番茄钟完成，歇一会儿吧。';
+  speak(speechLine, cfg.voice);
   speechUntilMs = performance.now() + 8000;
   playPomodoroDoneSound();
 });
@@ -1561,6 +1565,8 @@ function advance(dt) {
       const lines = brain.profile.visitLines;
       if (lines?.length) {
         speechLine = lines[Math.floor(Math.random() * lines.length)];
+  speak(speechLine, cfg.voice);
+        speak(speechLine, cfg.voice);
         speechUntilMs = performance.now() + (brain.profile.performMs ?? 2600);
       }
     } else if (pendingPerch) {
@@ -1617,6 +1623,7 @@ function advance(dt) {
     beginFade(before);
     if (claudeStatus.detail) {
       speechLine = claudeStatus.detail;
+      speak(speechLine, cfg.voice);
       speechUntilMs = performance.now() + 4000;
     }
   }
