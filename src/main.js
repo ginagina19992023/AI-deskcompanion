@@ -1119,6 +1119,14 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       cfg.chat.enabled = !!value;
       buildTrayMenu();
       break;
+    case 'chatVoiceMode':
+      cfg.chat = cfg.chat ?? {};
+      cfg.chat.voiceMode = !!value;
+      break;
+    case 'chatOllamaUrl':
+      cfg.chat = cfg.chat ?? {};
+      cfg.chat.ollamaUrl = value;
+      break;
     case 'musicNodEnabled':
       // The ring toggle and right-click checkbox both flip the *runtime*
       // musicNodEnabled variable already; this is what makes that choice
@@ -1925,6 +1933,8 @@ function dashboardSnapshot() {
       chatProvider: cfg.chat?.provider ?? 'ollama',
       chatBaseUrl: cfg.chat?.baseUrl ?? '',
       chatApiKeyEnv: cfg.chat?.apiKeyEnv ?? '',
+      chatVoiceMode: !!cfg.chat?.voiceMode,
+      chatOllamaUrl: cfg.chat?.ollamaUrl ?? 'http://localhost:11434',
       workSupervisionEnabled: !!cfg.workSupervision?.enabled,
       workSupervisionIntervalMs: cfg.workSupervision?.intervalMs ?? 180000,
       sleepEnabled: !!cfg.sleepSchedule?.enabled,
