@@ -1565,7 +1565,6 @@ function advance(dt) {
       const lines = brain.profile.visitLines;
       if (lines?.length) {
         speechLine = lines[Math.floor(Math.random() * lines.length)];
-  speak(speechLine, cfg.voice);
         speak(speechLine, cfg.voice);
         speechUntilMs = performance.now() + (brain.profile.performMs ?? 2600);
       }

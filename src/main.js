@@ -605,7 +605,8 @@ function stopVoiceStt() {
 
 ipcMain.on('pet:voice-ppt-start', () => {
   if (!cfg.voice?.enabled) return;
-  startVoiceStt()?.start();
+  startVoiceStt();
+  voiceSttWatcher?.start();
 });
 ipcMain.on('pet:voice-ppt-stop', () => {
   voiceSttWatcher?.stop();
@@ -613,9 +614,9 @@ ipcMain.on('pet:voice-ppt-stop', () => {
 ipcMain.on('pet:voice-call-mode-toggle', () => {
   if (!cfg.voice?.enabled) return;
   voiceCallModeActive = !voiceCallModeActive;
-  const watcher = startVoiceStt();
-  if (voiceCallModeActive) watcher?.start();
-  else watcher?.stop();
+  startVoiceStt();
+  if (voiceCallModeActive) voiceSttWatcher?.start();
+  else voiceSttWatcher?.stop();
   if (alive()) win.webContents.send('pet:voice-call-mode-state', { active: voiceCallModeActive });
 });
 
@@ -1238,7 +1239,7 @@ let toolbarPetRect = null;
 const RING_EXTRA = 130;
 
 function toolbarState() {
-  return { pomodoroActive: !!pomodoroState, musicNodEnabled, wanderPaused: paused };
+  return { pomodoroActive: !!pomodoroState, musicNodEnabled, wanderPaused: paused, voiceCallModeActive: !!voiceCallModeActive };
 }
 
 function openToolbar() {
@@ -1326,6 +1327,13 @@ function performToggle(toggle) {
     paused = !paused;
     if (paused) cancelWander();
     sendPetToggles();
+  } else if (toggle === 'voiceCall') {
+    if (!cfg.voice?.enabled) return;
+    voiceCallModeActive = !voiceCallModeActive;
+    startVoiceStt();
+    if (voiceCallModeActive) voiceSttWatcher?.start();
+    else voiceSttWatcher?.stop();
+    if (alive()) win.webContents.send('pet:voice-call-mode-state', { active: voiceCallModeActive });
   }
   if (alive()) win.webContents.send('pet:toolbar-state', toolbarState());
 }
@@ -1352,6 +1360,7 @@ const SHORTCUT_ACTIONS = [
   { key: 'pomodoro', label: '切换番茄钟', kind: 'toggle' },
   { key: 'musicNod', label: '切换听歌点头', kind: 'toggle' },
   { key: 'wander', label: '切换到处走', kind: 'toggle' },
+  { key: 'voiceCall', label: '切换语音聊天', kind: 'toggle' },
 ];
 
 // Re-registers every configured shortcut from scratch (Electron has no
