@@ -13,6 +13,8 @@ npm install
 npm start
 ```
 
+双击根目录的 `INSTALL-DESKTOP-SHORTCUT.bat` 运行一次，会在桌面生成「AI Desk Companion」快捷方式。它指向隐藏启动器 `tools/start-desktop-pet.vbs`，在后台跑 `npm start`、不弹黑框命令行窗口，以后双击桌面图标就能直接干净地打开宠物。
+
 仓库内的 `config.default.json` 是可直接运行的安全默认配置。首次在控制面板保存设置时会生成仅供本机使用的 `config.json`；它和 `data/` 下的截图、聊天、待办、令牌及运行状态都不会进入 Git。
 
 需要屏幕观察、工作监督或角色对话时，请在控制面板中主动开启并配置本地 Ollama 或兼容接口。发布默认值不会自动截图，也不会自动向模型发送屏幕或对话内容。
