@@ -352,6 +352,8 @@ dashMusicCommentCooldownEl.addEventListener('change', () => window.dash.setSetti
 
 const dashMemoryEnabledEl = document.getElementById('dashMemoryEnabled');
 const dashScreenTipsEnabledEl = document.getElementById('autoScreenTipsEnabled');
+const dashCameraSenseEnabledEl = document.getElementById('autoCameraSenseEnabled');
+const dashCameraSenseIntervalEl = document.getElementById('autoCameraSenseInterval');
 const dashChatEnabledEl = document.getElementById('dashChatEnabled');
 const dashMusicNodEnabledEl = document.getElementById('dashMusicNodEnabled');
 const dashPomodoroDurationEl = document.getElementById('dashPomodoroDuration');
@@ -409,6 +411,8 @@ dashContextRingEnabledEl.addEventListener('change', () => window.dash.setSetting
 dashMemoryEnabledEl.addEventListener('change', () => window.dash.setSetting('memoryEnabled', dashMemoryEnabledEl.checked));
 dashScreenTipsEnabledEl.addEventListener('change', () => window.dash.setSetting('screenTipsEnabled', dashScreenTipsEnabledEl.checked));
 dashScreenTipsAutoIntervalEl.addEventListener('change', () => window.dash.setSetting('screenTipsIntervalMs', Number(dashScreenTipsAutoIntervalEl.value)));
+dashCameraSenseEnabledEl.addEventListener('change', () => window.dash.setSetting('cameraSenseEnabled', dashCameraSenseEnabledEl.checked));
+dashCameraSenseIntervalEl.addEventListener('change', () => window.dash.setSetting('cameraSenseIntervalMs', Number(dashCameraSenseIntervalEl.value)));
 dashChatEnabledEl.addEventListener('change', () => window.dash.setSetting('chatEnabled', dashChatEnabledEl.checked));
 dashMusicNodEnabledEl.addEventListener('change', () => window.dash.setSetting('musicNodEnabled', dashMusicNodEnabledEl.checked));
 dashPomodoroDurationEl.addEventListener('change', () => window.dash.setSetting('pomodoroDurationMin', Number(dashPomodoroDurationEl.value)));
@@ -446,6 +450,8 @@ function renderSettings(settings) {
   dashMemoryEnabledEl.checked = !!settings.memoryEnabled;
   dashScreenTipsEnabledEl.checked = !!settings.screenTipsEnabled;
   dashScreenTipsAutoIntervalEl.value = String(settings.screenTipsIntervalMs ?? 180000);
+  dashCameraSenseEnabledEl.checked = !!settings.cameraSenseEnabled;
+  dashCameraSenseIntervalEl.value = String(settings.cameraSenseIntervalMs ?? 120000);
   dashChatEnabledEl.checked = !!settings.chatEnabled;
   dashMusicNodEnabledEl.checked = !!settings.musicNodEnabled;
   dashPomodoroDurationEl.value = String(settings.pomodoroDurationMin ?? 25);

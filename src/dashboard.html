@@ -450,6 +450,24 @@
       </div>
     </div>
     <div class="panel-block">
+      <h3>📷 摄像头感知</h3>
+      <p class="hint" style="margin-top:0;">定期拍一张摄像头画面交给视觉模型看，判断你在不在/情绪，跟屏幕提示共用同一套气泡与历史记录。</p>
+      <div class="field-row">
+        <label for="autoCameraSenseEnabled">开关</label>
+        <input type="checkbox" id="autoCameraSenseEnabled">
+      </div>
+      <div class="field-row">
+        <label for="autoCameraSenseInterval">频率</label>
+        <select id="autoCameraSenseInterval">
+          <option value="60000">每 1 分钟</option>
+          <option value="120000">每 2 分钟</option>
+          <option value="180000">每 3 分钟</option>
+          <option value="300000">每 5 分钟</option>
+          <option value="600000">每 10 分钟</option>
+        </select>
+      </div>
+    </div>
+    <div class="panel-block">
       <h3>👀 干活监督</h3>
       <p class="hint" style="margin-top:0;">番茄钟进行时定期看屏幕判断专注/摸鱼——只在番茄钟运行中才会真的检查。</p>
       <div class="field-row">

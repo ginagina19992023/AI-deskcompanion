@@ -1864,6 +1864,8 @@ function dashboardSnapshot() {
       screenTipsIntervalMs: cfg.screenTips?.intervalMs ?? 180000,
       memoryEnabled: cfg.petMemory?.enabled ?? true,
       screenTipsEnabled: !!cfg.screenTips?.enabled,
+      cameraSenseEnabled: !!cfg.cameraSense?.enabled,
+      cameraSenseIntervalMs: cfg.cameraSense?.intervalMs ?? 120000,
       chatEnabled: !!cfg.chat?.enabled,
       musicNodEnabled: !!cfg.musicNod?.enabled,
       pomodoroDurationMin: cfg.pomodoro?.durationMin ?? 25,
