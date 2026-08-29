@@ -464,6 +464,12 @@
       </div>
       <p class="hint" id="voiceSttEngineHint" style="display: none;">Whisper 中文识别准确率明显优于系统自带引擎，但要先运行 tools/whisper/setup-whisper.ps1 下载模型（一次性，几百 MB），没下载就选这个会报错听不到反应</p>
 
+      <div class="field-row" id="voiceSettingsGroup7" style="display: none;">
+        <label for="voiceCpuMode">CPU 模式（先出文字再朗读）</label>
+        <input type="checkbox" id="voiceCpuMode">
+      </div>
+      <p class="hint" id="voiceCpuModeHint" style="display: none;">关闭（默认）：边生成文字边朗读，说得快但如果电脑跑本地模型很吃力，两边抢 CPU 可能拖慢回复速度。开启：等完整回复生成完再一次性朗读，回复本身会更快，代价是要多等一会儿才能听到声音。电脑配置一般、觉得回复卡顿明显时建议开启。</p>
+
       <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
         <label for="voicePushToTalkKey">推送通话快捷键</label>
         <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 Alt+G 或 F9" style="width:120px;">

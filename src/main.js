@@ -1085,6 +1085,10 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       cfg.voice = cfg.voice ?? {};
       cfg.voice.pushToTalkKey = value;
       break;
+    case 'voiceCpuMode':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.cpuMode = !!value;
+      break;
     case 'voiceSttEngine':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.sttEngine = value;
@@ -2004,6 +2008,7 @@ function dashboardSnapshot() {
       voicePitch: cfg.voice?.pitch ?? 1.0,
       voiceVoiceName: cfg.voice?.voiceName ?? '',
       voiceSttEngine: cfg.voice?.sttEngine ?? 'sapi',
+      voiceCpuMode: !!cfg.voice?.cpuMode,
       voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'Alt+G',
       chatEnabled: !!cfg.chat?.enabled,
       musicNodEnabled: !!cfg.musicNod?.enabled,

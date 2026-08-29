@@ -13,8 +13,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
-$whisperDir = Join-Path $root 'tools\whisper'
+# This script already lives in tools\whisper -- $PSScriptRoot *is* that
+# directory. Previously this did Split-Path -Parent $PSScriptRoot (which
+# gives tools\, the *parent* of tools\whisper) then Join-Path'd
+# 'tools\whisper' back onto it, producing tools\tools\whisper and
+# silently downloading/extracting everything into a bogus, duplicated
+# path -- confirmed live: a full 488MB model landed there successfully,
+# just in the wrong place.
+$whisperDir = $PSScriptRoot
 $modelsDir = Join-Path $whisperDir 'models'
 New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
@@ -61,7 +67,17 @@ Write-Host ""
 Write-Host "Done. Verify with:"
 Write-Host "  $exePath -m $modelPath --help"
 Write-Host ""
-Write-Host "Then in the dashboard: 聊天 -> 语音设置 -> 语音识别引擎 -> 本地 Whisper"
+# Deliberately English, not the dashboard's actual Chinese label text --
+# confirmed live that hardcoding non-ASCII literals in this file garbles
+# regardless of any runtime [Console]::OutputEncoding fix. Windows
+# PowerShell 5.1 reads .ps1 source using the system ANSI codepage unless
+# the file carries a UTF-8 BOM, so a Chinese string literal here gets
+# corrupted at *parse* time, before the string even exists in memory --
+# no output-side encoding fix can undo damage that already happened
+# reading the file in. voice-stt.ps1's similar-looking fix is unrelated:
+# it only ever emits *dynamic* runtime text (recognized speech), never a
+# hardcoded literal, so it never hit this class of bug at all.
+Write-Host "Then in the dashboard's chat tab: voice settings -> voice recognition engine -> local Whisper"
 if ($Model -ne 'base') {
   Write-Host "Since you picked '$Model', also set config.json's voice.whisper.modelPath to:"
   Write-Host "  $modelPath"

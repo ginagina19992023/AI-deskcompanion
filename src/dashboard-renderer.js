@@ -432,6 +432,8 @@ const voiceVoiceNameSelectEl = document.getElementById('voiceVoiceNameSelect');
 const voiceVoiceNameHintEl = document.getElementById('voiceVoiceNameHint');
 const voiceSttEngineSelectEl = document.getElementById('voiceSttEngineSelect');
 const voiceSttEngineHintEl = document.getElementById('voiceSttEngineHint');
+const voiceCpuModeEl = document.getElementById('voiceCpuMode');
+const voiceCpuModeHintEl = document.getElementById('voiceCpuModeHint');
 const voiceSettingsGroups = [
   document.getElementById('voiceSettingsGroup'),
   document.getElementById('voiceSettingsGroup2'),
@@ -439,8 +441,10 @@ const voiceSettingsGroups = [
   document.getElementById('voiceSettingsGroup4'),
   document.getElementById('voiceSettingsGroup5'),
   document.getElementById('voiceSettingsGroup6'),
+  document.getElementById('voiceSettingsGroup7'),
   voiceVoiceNameHintEl,
   voiceSttEngineHintEl,
+  voiceCpuModeHintEl,
 ];
 
 voiceEnabledEl.addEventListener('change', (e) => {
@@ -503,6 +507,10 @@ voiceVoiceNameSelectEl.addEventListener('change', (e) => {
 
 voiceSttEngineSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceSttEngine', e.target.value);
+});
+
+voiceCpuModeEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceCpuMode', e.target.checked);
 });
 
 // Chat settings handlers
@@ -598,6 +606,7 @@ function renderSettings(settings) {
   pendingVoiceSelection = settings.voiceVoiceName ?? '';
   voiceVoiceNameSelectEl.value = pendingVoiceSelection;
   voiceSttEngineSelectEl.value = settings.voiceSttEngine ?? 'sapi';
+  voiceCpuModeEl.checked = !!settings.voiceCpuMode;
   for (const group of voiceSettingsGroups) {
     group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
   }
@@ -819,6 +828,10 @@ window.dash.onChatError(({ message }) => {
 window.dash.onChatSpeakDelta(({ delta, voiceConfig }) => {
   chatTabVoiceConfig = voiceConfig;
   chatTabSpeechBuffer += delta;
+  // cpuMode: see the identical comment in renderer.js -- defers all
+  // speech to onChatComplete so speech synthesis never competes with
+  // in-progress token generation for this machine's CPU.
+  if (voiceConfig?.cpuMode) return;
   if (/[。！？\n]$/.test(chatTabSpeechBuffer)) {
     speak(chatTabSpeechBuffer, voiceConfig);
     chatTabSpeechBuffer = '';

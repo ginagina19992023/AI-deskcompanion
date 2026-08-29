@@ -179,6 +179,8 @@
     "pitch": 1,
     "volume": 1,
     "pushToTalkKey": "Alt+G",
+    "_cpuMode": "开启后不再逐句边生成文字边朗读，而是等完整回复生成完毕后一次性朗读。纯 CPU 跑 Ollama 时，语音合成和大模型推理是两个都吃 CPU 的进程——边生成边念会让它们互相抢 CPU，实测这样拖慢了文字生成本身的速度。默认关闭（保留原有的边生成边念体验），机器慢、觉得回复卡顿明显时可以打开试试。",
+    "cpuMode": false,
     "_sttEngine": "语音识别引擎：'sapi'（默认，Windows 自带，零配置但中文准确率较低）或 'whisper'（本地 whisper.cpp，中文准确率明显更好，但要先运行 tools/whisper/setup-whisper.ps1 下载模型和可执行文件，没下载好会报错回退不了——选 whisper 前务必先跑一遍那个脚本）。",
     "sttEngine": "sapi",
     "whisper": {

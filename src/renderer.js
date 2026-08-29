@@ -425,6 +425,15 @@ window.pet.onChatSpeak(({ delta, voiceConfig }) => {
   if (!chatSpeechBuffer) chatSpeechBuffer = '';
   chatSpeechBuffer += delta;
 
+  // cpuMode: skip the per-sentence speak() below entirely -- on this
+  // machine's CPU-only Ollama, speech synthesis and LLM token generation
+  // are both CPU-bound, and starting to speak mid-generation measurably
+  // slowed down the rest of the reply (confirmed by direct user report).
+  // Deferring everything to onChatComplete keeps the CPU dedicated to
+  // generation until it's actually done, at the cost of not hearing
+  // anything until the full reply is in.
+  if (voiceConfig?.cpuMode) return;
+
   // Speak when we hit Chinese sentence-ending punctuation
   if (/[。！？\n]$/.test(chatSpeechBuffer)) {
     speak(chatSpeechBuffer, voiceConfig);
