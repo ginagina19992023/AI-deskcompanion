@@ -2,7 +2,7 @@
 
 **Status:** DONE
 
-**Commits:** working tree changes on `main`, committed as a single commit following `5671a0b` (新增 Dashboard 聊天分页...) — see `git log -1` after commit for hash.
+**Commits:** `74a9990` 新增聊天情绪触发宠物动作和emoji反应 (on `main`, following `5671a0b`)
 
 **Files Changed:**
 - `D:/GitHub/AI-deskcompanion/src/chat.js` — added exported `EMOTION_TAG_INSTRUCTION` constant.
