@@ -1,0 +1,61 @@
+diff --git a/config.default.json b/config.default.json
+index 702a19d..abb0bfa 100644
+--- a/config.default.json
++++ b/config.default.json
+@@ -83,30 +83,31 @@
+     "_what": "记录页「生成这天的总结」的自动版——按 intervalMs 定期把当天已有的屏幕提示/干活监督记录喂给聊天模型生成一次总结并存下来（跟手动点按钮生成的是同一份历史，都存在 data/screen-tips/<日期>-summaries.json，记录页能翻看所有历史总结，不只是最新一条）。只总结「今天」，不会给过去的日期自动补。需要 chat.enabled 为 true（总结要用聊天模型）；当天完全没有记录时会跳过，不会生成空总结。",
+     "enabled": true,
+     "intervalMs": 21600000
+   },
+   "petMemory": {
+     "_what": "跨会话的事实记忆，两条来源：①每次聊天回复完之后，一个不阻塞聊天的后台小请求会问模型「这段对话里有没有值得长期记住的事实」，记进去标 source=chat；②定期（跟每日总结同一个时钟）从 Claude/Codex 的任务记录和屏幕观察里提炼，标 source=activity，其中来自屏幕截屏观察的部分额外标「不确定」（视觉模型猜的，不是确凿事实）。除了这些被筛选/打分的零散事实，每次聊天还会原样带上最近 recentDays 天 Claude/Codex 完成的任务标题（确切记录，不受重要性/相关性打分影响，不会被漏掉）。关系图和对话注入会先用本地 embedding 按语义折叠同类内容，主节点显示 ×N，原始记录仍保留供审阅。控制面板「记忆」页能看到全部记住的内容并逐条删除，或者一键清空。默认开启；不想让它记東西就在这里关掉。",
+     "enabled": true,
+     "recentDays": 4
+   },
+   "chat": {
+-    "_what": "跟宠物真的对话（不同于 claudeStatus——那个只反映 Claude Code 在干嘛；也不同于屏幕提示——那个是单向的旁白）。默认关闭，开启前需装好 Ollama 并拉一个文本模型。provider/baseUrl/apiKeyEnv 用法跟 screenTips 完全一样：'ollama' 只连本机不联网，'openai-compatible' 才会把对话发到你配置的 baseUrl。每只宠物在 pets[] 里自己的 chatSystemPrompt 决定说话风格；这里的 systemPrompt 只是没配置人设时的兜底。",
++    "_what": "跟宠物真的对话。需要 Ollama 或 OpenAI 兼容服务。默认关闭。voiceMode 启用时宠物会用语音读出回复。",
+     "enabled": false,
++    "voiceMode": false,
+     "provider": "ollama",
+     "ollamaUrl": "http://localhost:11434",
+     "_model": "gemma4:12b（本机已拉取）而不是 llava——llava 是视觉模型，纯文字角色扮演对话质量不如 gemma4。",
+     "model": "gemma4:12b",
+     "baseUrl": "",
+     "apiKeyEnv": "",
+     "timeoutMs": 90000,
+-    "systemPrompt": "You are a desktop pet companion. Reply in Chinese, in one or two short sentences."
++    "systemPrompt": "你是塞巴斯蒂安，一个桌面宠物。用简短的中文回复（一到两句话）。"
+   },
+   "pomodoro": {
+     "_what": "右键菜单「开始番茄钟」用的时长。待办和番茄钟记录存在 data/todos.json 和 data/pomodoro-sessions.json（不是这个文件——那两个是随时变化的用户数据，不是要手改的设置）。",
+     "durationMin": 25
+   },
+   "workSupervision": {
+     "_what": "番茄钟进行中才生效（没开番茄钟不会截图）。按 intervalMs 随机截屏问视觉模型你是在认真干活还是摸鱼，回复第一行必须是「专注」「摸鱼」「不确定」三选一，第二行是塞巴斯蒂安风格的锐评——认真会清零摸鱼计数，摸鱼会累加，连续 3 次摸鱼会触发一个更明显的提醒（转一圈+更重的话）。默认关闭——这比屏幕提示更有监视意味，是主动选择才开的功能。跟屏幕提示共用同一份「记录」历史（data/screen-tips/），翻阅时不分是普通锐评还是监督记录。provider/model/ollamaUrl 用法跟 screenTips 完全一样。",
+     "enabled": false,
+     "intervalMs": 60000,
+     "provider": "ollama",
+@@ -164,21 +165,21 @@
+     "_what": "定期拍一张摄像头画面，交给本地视觉模型看用户在不在/情绪，结果和屏幕观察共用同一套气泡与历史记录（source 标为 camera）。独立开关、独立频率，跟屏幕观察互不影响。默认关闭，画面走本地 Ollama 不出机器。",
+     "enabled": false,
+     "provider": "ollama",
+     "ollamaUrl": "http://localhost:11434",
+     "model": "minicpm-v",
+     "prompt": "Describe the person in this webcam photo in one short sentence -- are they present, and what's their apparent mood?",
+     "intervalMs": 120000,
+     "timeoutMs": 90000
+   },
+   "voice": {
+-    "_what": "宠物开口说话（浏览器自带 speechSynthesis，本地系统语音，不联网）+ 按键说话/通话模式语音输入（Windows 自带 SAPI 中文听写，通过 tools/voice-stt.ps1 离线识别，音频不进 Electron 进程）。默认关闭。",
++    "_what": "宠物开口说话（浏览器自带 speechSynthesis）+ 按键说话/通话模式语音输入（Windows 自带 SAPI）。默认关闭。",
+     "enabled": false,
+     "voiceName": "",
+     "rate": 1.0,
+     "pitch": 1.0,
+     "volume": 1.0,
+     "pushToTalkKey": "F9"
+   },
+   "companion": {
+     "_what": "感知 Codex/ChatGPT 桌宠的覆盖层窗口位置。纯只读：只向 Windows 查询窗口矩形，不接触、不注入、不修改 Codex 进程。找不到就安静回落到普通行为。",
+     "enabled": true,

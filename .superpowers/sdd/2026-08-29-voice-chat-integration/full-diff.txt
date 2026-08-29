@@ -1,0 +1,870 @@
+diff --git a/config.default.json b/config.default.json
+index 702a19d..abb0bfa 100644
+--- a/config.default.json
++++ b/config.default.json
+@@ -90,8 +90,9 @@
+     "recentDays": 4
+   },
+   "chat": {
+-    "_what": "跟宠物真的对话（不同于 claudeStatus——那个只反映 Claude Code 在干嘛；也不同于屏幕提示——那个是单向的旁白）。默认关闭，开启前需装好 Ollama 并拉一个文本模型。provider/baseUrl/apiKeyEnv 用法跟 screenTips 完全一样：'ollama' 只连本机不联网，'openai-compatible' 才会把对话发到你配置的 baseUrl。每只宠物在 pets[] 里自己的 chatSystemPrompt 决定说话风格；这里的 systemPrompt 只是没配置人设时的兜底。",
++    "_what": "跟宠物真的对话。需要 Ollama 或 OpenAI 兼容服务。默认关闭。voiceMode 启用时宠物会用语音读出回复。",
+     "enabled": false,
++    "voiceMode": false,
+     "provider": "ollama",
+     "ollamaUrl": "http://localhost:11434",
+     "_model": "gemma4:12b（本机已拉取）而不是 llava——llava 是视觉模型，纯文字角色扮演对话质量不如 gemma4。",
+@@ -99,7 +100,7 @@
+     "baseUrl": "",
+     "apiKeyEnv": "",
+     "timeoutMs": 90000,
+-    "systemPrompt": "You are a desktop pet companion. Reply in Chinese, in one or two short sentences."
++    "systemPrompt": "你是塞巴斯蒂安，一个桌面宠物。用简短的中文回复（一到两句话）。"
+   },
+   "pomodoro": {
+     "_what": "右键菜单「开始番茄钟」用的时长。待办和番茄钟记录存在 data/todos.json 和 data/pomodoro-sessions.json（不是这个文件——那两个是随时变化的用户数据，不是要手改的设置）。",
+@@ -171,7 +172,7 @@
+     "timeoutMs": 90000
+   },
+   "voice": {
+-    "_what": "宠物开口说话（浏览器自带 speechSynthesis，本地系统语音，不联网）+ 按键说话/通话模式语音输入（Windows 自带 SAPI 中文听写，通过 tools/voice-stt.ps1 离线识别，音频不进 Electron 进程）。默认关闭。",
++    "_what": "宠物开口说话（浏览器自带 speechSynthesis）+ 按键说话/通话模式语音输入（Windows 自带 SAPI）。默认关闭。",
+     "enabled": false,
+     "voiceName": "",
+     "rate": 1.0,
+diff --git a/docs/VOICE_CHAT_INTEGRATION.md b/docs/VOICE_CHAT_INTEGRATION.md
+new file mode 100644
+index 0000000..9a2fa32
+--- /dev/null
++++ b/docs/VOICE_CHAT_INTEGRATION.md
+@@ -0,0 +1,388 @@
++# 语音聊天功能使用指南
++
++这份指南帮助您启用和使用 AI Desktop Companion 中的语音和聊天功能。您可以让宠物说话、用麦克风聊天、收听语音回复。
++
++---
++
++## 快速开始
++
++### 1. 启用语音功能
++
++1. 右键点击宠物窗口，选择 **设置**
++2. 在设置窗口中找到 **🎤 语音设置** 部分
++3. 勾选 **启用语音输出与输入**
++4. 点击**确定**保存设置
++
++此时宠物就能说话了，您也可以按 **F9** 用麦克风讲话。
++
++### 2. 启用聊天功能
++
++1. 在设置窗口中找到 **💬 聊天设置** 部分
++2. 勾选 **启用聊天**
++3. 根据您的需求选择配置：
++   - **基础文字聊天**：直接点发送即可
++   - **聊天时启用语音回复**：宠物会用语音读出回复（可选）
++4. 点击**确定**保存设置
++
++现在您可以用 **Alt+A** 快捷键或点工具栏打开聊天窗口。
++
++---
++
++## 详细功能说明
++
++### 语音设置（🎤 Voice Settings）
++
++在设置中的"语音设置"部分，您可以调整：
++
++| 设置项 | 说明 | 默认值 |
++|--------|------|--------|
++| **启用语音输出与输入** | 启用宠物说话和语音识别 | 禁用 |
++| **语音输出音量** | 调整宠物说话的音量（0-1.0） | 1.0 |
++| **语速** | 调整宠物说话的速度（0.5-2.0） | 1.0 |
++| **音高** | 调整宠物说话的音高（0.5-2.0） | 1.0 |
++| **推送通话快捷键** | 设置语音输入的快捷键 | F9 |
++
++**提示：** 调整音量、语速、音高后立即生效，无需重启应用。
++
++### 聊天设置（💬 Chat Settings）
++
++在设置中的"聊天设置"部分，您可以配置：
++
++| 设置项 | 说明 | 选项 |
++|--------|------|------|
++| **启用聊天** | 启用聊天功能 | 开/关 |
++| **聊天时启用语音回复** | 宠物用语音读出聊天回复 | 开/关 |
++| **聊天模型提供商** | 选择 AI 模型提供商 | Ollama / OpenAI 兼容服务 |
++| **Ollama 地址** | 本地 Ollama 服务地址 | http://localhost:11434 |
++| **模型名称** | 要使用的 AI 模型名称 | gemma4:12b（默认） |
++
++**提示：** 
++- 使用 Ollama（本地）无需网络和 API 密钥
++- OpenAI 兼容服务适合使用 LM Studio 等服务
++
++---
++
++## 使用方式
++
++### 文字聊天
++
++1. **打开聊天窗口**
++   - 按 **Alt+A** 快捷键，或
++   - 点宠物窗口工具栏的聊天按钮
++
++2. **输入消息**
++   - 在输入框输入文字
++   - 点"发送"按钮或按 **Enter** 键
++
++3. **查看回复**
++   - 宠物的回复会显示在气泡中
++   - 如果启用了"聊天时启用语音回复"，同时会听到宠物说话
++
++**键盘快捷键：**
++- **Alt+A**：打开/关闭聊天窗口
++- **Enter**：发送消息
++- **Escape**：关闭聊天窗口
++
++### 语音聊天
++
++#### 方式 1：按住快捷键说话
++
++1. 打开聊天窗口（Alt+A）
++2. **按住 F9 键** 开始说话
++3. 说话时窗口中会显示 **"正在聆听..."** 状态
++4. **松开 F9 键** 系统开始识别语音
++5. 识别结果自动填入聊天输入框
++6. 按 **Enter** 发送，或继续编辑后再发送
++
++#### 方式 2：点击麦克风按钮
++
++1. 打开聊天窗口（Alt+A）
++2. 点聊天输入框旁的 **🎤 按钮**
++3. **按住鼠标** 开始说话
++4. 松开鼠标停止识别
++5. 识别结果填入输入框
++6. 按 **Enter** 发送
++
++**提示：**
++- 说话要清晰，避免背景噪音
++- 一次可以说多句话（最多约 30 秒）
++- 识别失败时检查麦克风权限和驱动
++
++### 情感气泡的语音播放
++
++当您启用了语音功能后，点击任何宠物的表情气泡都会：
++- 用宠物的声音朗读气泡文字
++- 如果聊天中，同时使用聊天语音回复的设置
++
++---
++
++## 常见问题（FAQ）
++
++### 声音/音频相关
++
++**Q: 为什么没有听到宠物说话？**
++
++A: 请检查以下几点：
++1. ✓ 确认"启用语音输出与输入"已勾选
++2. ✓ 检查语音输出音量是否为 0（调整滑块）
++3. ✓ 检查系统音量是否静音（右下角音量图标）
++4. ✓ 检查浏览器/应用的音量是否被静音
++5. ✓ 确认您的设备有音频设备（扬声器/耳机）
++6. ✓ 尝试在聊天中输入一条消息以触发语音输出
++
++**Q: 宠物说话的声音太快/太慢怎么办？**
++
++A: 在语音设置中调整**语速**滑块：
++- 向左拖动：变慢（最低 0.5x）
++- 向右拖动：变快（最高 2.0x）
++- 默认 1.0 是正常速度
++
++**Q: 宠物说话的音高听起来怪怪的？**
++
++A: 调整**音高**滑块以改变语调：
++- 向左拖动：变低沉
++- 向右拖动：变尖锐
++- 默认 1.0 是自然音高
++
++---
++
++### 麦克风/语音识别相关
++
++**Q: 为什么语音识别不工作？**
++
++A: 语音识别有以下限制：
++- ⚠️ **仅支持 Windows**（macOS 和 Linux 不支持）
++- ⚠️ 需要 Windows 自带的 SAPI（Speech API）
++- 需要允许应用使用麦克风权限
++
++检查清单：
++1. ✓ 确认操作系统是 Windows
++2. ✓ 在 Windows 设置中允许应用访问麦克风
++3. ✓ 麦克风硬件正常工作（测试其他应用的录音）
++4. ✓ 尝试重启应用
++
++**Q: 语音识别总是失败/无法识别我的声音？**
++
++A: 请尝试以下方式改善识别：
++- 使用靠近麦克风 10-15 厘米处说话
++- 减少背景噪音（关闭风扇、音乐等）
++- 说话清晰，避免口音过重
++- 说完后等待 1 秒让系统处理
++- 如果多次失败，检查麦克风是否工作（在 Windows 音频设置中测试）
++
++**Q: 如何更改语音识别的快捷键？**
++
++A: 在语音设置中修改"推送通话快捷键"字段：
++1. 点击输入框
++2. 输入键名（如 `F10`、`V` 等）
++3. 点确定保存
++
++支持的键名示例：`F1`-`F12`、`A`-`Z`、`0`-`9` 等。
++
++---
++
++### 聊天功能相关
++
++**Q: 为什么聊天没有回复？**
++
++A: 请检查以下设置：
++1. ✓ 确认"启用聊天"已勾选
++2. ✓ 检查模型提供商配置是否正确
++3. ✓ 如果使用 Ollama：
++   - 确保 Ollama 已启动（运行 `ollama serve`）
++   - 检查地址是否正确（默认 `http://localhost:11434`）
++   - 检查模型是否已下载（运行 `ollama list` 查看）
++   - 如果没有模型，运行 `ollama pull gemma4:12b` 下载
++4. ✓ 如果使用 OpenAI 兼容服务：
++   - 检查网络连接是否正常
++   - 验证服务地址和 API 密钥是否正确
++
++**Q: 聊天回复太慢了？**
++
++A: 这取决于您的模型和硬件：
++- 较小的模型（如 mistral:7b）会更快
++- 较大的模型（如 llama2:70b）会较慢
++- 网络延迟（OpenAI 兼容服务）
++- 建议尝试不同的模型以找到速度和质量的平衡
++
++**Q: 如何更改使用的 AI 模型？**
++
++A: 在聊天设置中修改"模型名称"字段：
++1. 查看可用模型列表：
++   - **Ollama**：运行 `ollama list`
++   - **LM Studio**：在软件中查看可用模型
++2. 在设置中输入模型名称（如 `mistral:7b`、`llama2`）
++3. 点确定保存
++
++**Q: 聊天时宠物没有说话？**
++
++A: 检查以下设置：
++1. ✓ "启用语音输出与输入"已勾选
++2. ✓ "聊天时启用语音回复"已勾选
++3. ✓ 音量不为 0
++4. ✓ 系统音量已打开
++
++---
++
++### 设置和配置相关
++
++**Q: 设置保存后下次启动丢失了？**
++
++A: 设置应该会自动保存到 `config.json` 文件中。如果丢失：
++1. 检查应用是否正常关闭（不是强制关闭）
++2. 检查 `config.json` 文件是否存在和可写
++3. 尝试再次设置并确认看到"保存"确认
++4. 重启应用验证设置是否保持
++
++**Q: 如何重置所有语音和聊天设置到默认值？**
++
++A: 您可以：
++1. **部分重置**：在设置窗口手动调整各项回到默认值
++2. **完全重置**：
++   - 关闭应用
++   - 编辑 `config.json` 文件
++   - 删除 `voice` 和 `chat` 部分
++   - 保存文件并重启应用
++
++**Q: 设置文件在哪里？**
++
++A: 设置存储在应用目录下的 `config.json` 文件中。
++
++---
++
++## 手动测试清单
++
++在完整使用语音聊天功能前，请验证以下项目。每项都应该成功通过。
++
++### 基础设置测试
++
++- [ ] **设置窗口加载** - 右键点宠物，选"设置"能正常打开设置窗口
++- [ ] **语音设置显示** - 设置窗口中能看到"🎤 语音设置"部分
++- [ ] **聊天设置显示** - 设置窗口中能看到"💬 聊天设置"部分
++- [ ] **语音设置展开/收起** - 勾选/取消"启用语音输出与输入"时，其他语音选项显示/隐藏
++- [ ] **聊天设置展开/收起** - 勾选/取消"启用聊天"时，其他聊天选项显示/隐藏
++
++### 语音功能测试
++
++#### 启用/禁用语音
++
++- [ ] **启用语音** - 在设置中勾选"启用语音输出与输入"，点确定
++- [ ] **语音按钮激活** - 启用后，聊天窗口中的🎤按钮应该可点击
++- [ ] **快捷键工作** - 启用后，按 F9 按键应该能触发语音输入
++- [ ] **禁用语音** - 取消勾选"启用语音输出与输入"后，F9 和🎤按钮不再工作
++- [ ] **设置持久化** - 关闭应用再打开，语音启用状态应该被保存
++
++#### 语音输出（TTS）
++
++- [ ] **聊天气泡语音** - 在聊天中输入消息，点发送后能听到宠物说话
++- [ ] **音量控制** - 调整"语音输出音量"滑块，声音大小随之改变
++- [ ] **语速控制** - 调整"语速"滑块，宠物说话速度随之改变
++- [ ] **音高控制** - 调整"音高"滑块，宠物说话音调随之改变
++- [ ] **情感气泡语音** - 点击宠物的表情气泡，能听到文字被朗读
++- [ ] **语音回复** - 启用"聊天时启用语音回复"后，聊天回复同时带有语音
++
++#### 语音输入（STT）
++
++- [ ] **按钮按下** - 在聊天窗口点🎤按钮，按钮应该变红/显示"正在聆听"状态
++- [ ] **按钮松开** - 松开鼠标后，按钮恢复正常并开始识别
++- [ ] **F9 按住** - 按住 F9 键，界面显示"正在聆听"状态
++- [ ] **F9 松开** - 松开 F9 键后开始识别
++- [ ] **识别结果** - 说话后，识别的文字应该出现在聊天输入框
++- [ ] **多句话** - 一次可以说多个句子，结果都应该填入输入框
++- [ ] **快捷键持久化** - 在设置中改变"推送通话快捷键"后，新快捷键应该生效
++
++### 聊天功能测试
++
++#### 启用/禁用聊天
++
++- [ ] **启用聊天** - 在设置中勾选"启用聊天"
++- [ ] **聊天窗口打开** - 按 Alt+A 或点工具栏能打开聊天窗口
++- [ ] **禁用聊天** - 取消勾选"启用聊天"后，聊天窗口不能打开
++- [ ] **设置持久化** - 关闭应用再打开，聊天启用状态应该被保存
++
++#### 文字聊天
++
++- [ ] **发送消息** - 在聊天窗口输入文字，点发送或按 Enter
++- [ ] **收到回复** - 宠物的回复显示在聊天气泡中
++- [ ] **多轮对话** - 可以持续发送多条消息，宠物继续回复
++- [ ] **清晰显示** - 宠物的回复文字清晰可读，格式正确
++- [ ] **输入框清空** - 发送消息后输入框清空，可以输入新消息
++
++#### 聊天语音回复
++
++- [ ] **启用语音回复** - 在聊天设置中勾选"聊天时启用语音回复"
++- [ ] **文字+语音** - 发送聊天消息，同时看到文字和听到语音
++- [ ] **禁用语音回复** - 取消勾选后，聊天回复只显示文字，不再有语音
++- [ ] **音量影响** - 调整语音输出音量后，聊天语音大小随之改变
++
++#### 模型配置
++
++- [ ] **Ollama 模型** - 选择 Ollama 提供商，检查地址和模型名称字段出现
++- [ ] **OpenAI 兼容** - 切换到 OpenAI 兼容服务，字段变更为相应配置项
++- [ ] **模型地址** - 能够编辑 Ollama 地址（如改为 `http://localhost:11434`）
++- [ ] **模型名称** - 能够编辑模型名称（如改为 `mistral:7b`）
++
++### 集成测试
++
++- [ ] **语音+聊天组合** - 同时启用语音和聊天功能，两者不冲突
++- [ ] **语音输入+文字回复** - 用 F9 输入语音，收到文字回复
++- [ ] **语音输入+语音回复** - 用 F9 输入语音，收到语音回复
++- [ ] **快捷键使用** - Alt+A 打开聊天，F9 输入语音，Enter 发送，都正常工作
++- [ ] **设置切换** - 在聊天中切换语音/语速/音高，新设置立即生效
++
++### 持久化和重启测试
++
++- [ ] **所有设置保存** - 修改各项设置后点确定
++- [ ] **完全关闭应用** - 完全退出应用（不是最小化）
++- [ ] **重新启动应用** - 重新打开应用
++- [ ] **设置恢复** - 检查所有设置是否都被保存并恢复
++  - 语音启用状态
++  - 音量、语速、音高值
++  - 快捷键设置
++  - 聊天启用状态
++  - 模型提供商和配置
++  - 语音回复启用状态
++
++### 边界和错误处理
++
++- [ ] **无网络（本地 Ollama）** - 在聊天时禁用网络，Ollama 聊天仍能工作
++- [ ] **模型不存在** - 使用不存在的模型名称，应该显示错误消息
++- [ ] **麦克风权限拒绝** - 系统拒绝麦克风权限时，语音输入显示错误
++- [ ] **超时处理** - 聊天请求超时时应该显示错误，不会卡住应用
++- [ ] **空消息处理** - 不输入任何文字直接发送时的行为正确
++- [ ] **很长的消息** - 输入很长的文字聊天消息，应该能正确处理和回复
++
++### 性能和稳定性
++
++- [ ] **无明显延迟** - 设置切换、聊天输入都应该立即响应
++- [ ] **连续对话** - 可以进行 10+ 轮的连续聊天，无崩溃
++- [ ] **多次语音输入** - 可以进行 5+ 次语音输入，每次都正确识别
++- [ ] **内存稳定** - 长时间使用后，应用内存占用不会持续增长
++- [ ] **音频不中断** - 语音播放和识别不会相互中断或产生噪音
++
++---
++
++## 已知限制
++
++- **语音识别仅支持 Windows**：需要 Windows 10 或更高版本
++- **语音输出使用浏览器默认语音**：受系统可用语言限制
++- **聊天功能需要外部服务**：需要本地 Ollama 或 OpenAI 兼容服务
++- **离线模式**：使用本地 Ollama 模型支持离线使用
++
++---
++
++## 获取帮助
++
++如果遇到问题：
++
++1. **检查日志**：查看应用控制台输出（Ctrl+Shift+I 打开开发者工具）
++2. **查看常见问题**：本文档的 FAQ 部分可能有解答
++3. **验证配置**：检查 `config.json` 文件中的设置是否正确
++4. **重启应用**：许多问题可以通过完全关闭并重启应用来解决
++5. **报告问题**：如果问题持续，请在项目 GitHub 提交 Issue
++
++---
++
++**最后更新：2026-08-29**
++
++**版本：1.0**
+diff --git a/src/dashboard-renderer.js b/src/dashboard-renderer.js
+index 9fcc1b4..7ab3723 100644
+--- a/src/dashboard-renderer.js
++++ b/src/dashboard-renderer.js
+@@ -420,6 +420,86 @@ dashCompanionEnabledEl.addEventListener('change', () => window.dash.setSetting('
+ dashTipDisplayStackedEl.addEventListener('change', () => window.dash.setSetting('tipDisplayStacked', dashTipDisplayStackedEl.checked));
+ dashSoundsEnabledEl.addEventListener('change', () => window.dash.setSetting('soundsEnabled', dashSoundsEnabledEl.checked));
+ 
++// Voice settings handlers
++const voiceEnabledEl = document.getElementById('voiceEnabled');
++const voiceVolumeEl = document.getElementById('voiceVolume');
++const voiceRateEl = document.getElementById('voiceRate');
++const voicePitchEl = document.getElementById('voicePitch');
++const voicePushToTalkKeyEl = document.getElementById('voicePushToTalkKey');
++const voiceSettingsGroups = [
++  document.getElementById('voiceSettingsGroup'),
++  document.getElementById('voiceSettingsGroup2'),
++  document.getElementById('voiceSettingsGroup3'),
++  document.getElementById('voiceSettingsGroup4'),
++];
++
++voiceEnabledEl.addEventListener('change', (e) => {
++  window.dash.setSetting('voiceEnabled', e.target.checked);
++  for (const group of voiceSettingsGroups) {
++    group.style.display = e.target.checked ? 'block' : 'none';
++  }
++});
++
++voiceVolumeEl.addEventListener('input', (e) => {
++  window.dash.setSetting('voiceVolume', parseFloat(e.target.value));
++  document.getElementById('voiceVolumeValue').textContent = parseFloat(e.target.value).toFixed(1);
++});
++
++voiceRateEl.addEventListener('input', (e) => {
++  window.dash.setSetting('voiceRate', parseFloat(e.target.value));
++  document.getElementById('voiceRateValue').textContent = parseFloat(e.target.value).toFixed(1);
++});
++
++voicePitchEl.addEventListener('input', (e) => {
++  window.dash.setSetting('voicePitch', parseFloat(e.target.value));
++  document.getElementById('voicePitchValue').textContent = parseFloat(e.target.value).toFixed(1);
++});
++
++voicePushToTalkKeyEl.addEventListener('change', (e) => {
++  window.dash.setSetting('voicePushToTalkKey', e.target.value || 'F9');
++});
++
++// Chat settings handlers
++const chatEnabledEl = document.getElementById('chatEnabled');
++const chatVoiceModeEl = document.getElementById('chatVoiceMode');
++const chatProviderEl = document.getElementById('chatProvider');
++const chatOllamaUrlEl = document.getElementById('chatOllamaUrl');
++const chatModelEl = document.getElementById('chatModel');
++const chatSettingsGroups = [
++  document.getElementById('chatSettingsGroup'),
++  document.getElementById('chatSettingsGroup2'),
++];
++const chatOllamaGroup = document.getElementById('chatOllamaGroup');
++const chatModelGroup = document.getElementById('chatModelGroup');
++const chatVoiceModeHint = document.getElementById('chatVoiceModeHint');
++
++chatEnabledEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatEnabled', e.target.checked);
++  for (const group of chatSettingsGroups) {
++    group.style.display = e.target.checked ? 'block' : 'none';
++  }
++  chatVoiceModeHint.style.display = e.target.checked ? 'block' : 'none';
++  chatOllamaGroup.style.display = e.target.checked && chatProviderEl.value === 'ollama' ? 'block' : 'none';
++  chatModelGroup.style.display = e.target.checked ? 'block' : 'none';
++});
++
++chatVoiceModeEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatVoiceMode', e.target.checked);
++});
++
++chatProviderEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatProvider', e.target.value);
++  chatOllamaGroup.style.display = e.target.value === 'ollama' ? 'block' : 'none';
++});
++
++chatOllamaUrlEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatOllamaUrl', e.target.value);
++});
++
++chatModelEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatModel', e.target.value);
++});
++
+ function renderSettings(settings) {
+   dashScreenTipModelEl.value = settings.screenTipsModel ?? '';
+   dashScreenTipProviderEl.value = settings.screenTipsProvider ?? 'ollama';
+@@ -459,6 +539,32 @@ function renderSettings(settings) {
+   dashTipDisplayStackedEl.checked = !!settings.tipDisplayStacked;
+   dashSoundsEnabledEl.checked = !!settings.soundsEnabled;
+   renderSoundFileNames(settings.soundFileNames);
++
++  // Populate voice settings
++  voiceEnabledEl.checked = !!settings.voiceEnabled;
++  voiceVolumeEl.value = settings.voiceVolume ?? 1.0;
++  document.getElementById('voiceVolumeValue').textContent = (settings.voiceVolume ?? 1.0).toFixed(1);
++  voiceRateEl.value = settings.voiceRate ?? 1.0;
++  document.getElementById('voiceRateValue').textContent = (settings.voiceRate ?? 1.0).toFixed(1);
++  voicePitchEl.value = settings.voicePitch ?? 1.0;
++  document.getElementById('voicePitchValue').textContent = (settings.voicePitch ?? 1.0).toFixed(1);
++  voicePushToTalkKeyEl.value = settings.voicePushToTalkKey ?? 'F9';
++  for (const group of voiceSettingsGroups) {
++    group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
++  }
++
++  // Populate chat settings
++  chatEnabledEl.checked = !!settings.chatEnabled;
++  chatVoiceModeEl.checked = !!settings.chatVoiceMode;
++  chatProviderEl.value = settings.chatProvider ?? 'ollama';
++  chatOllamaUrlEl.value = settings.chatOllamaUrl ?? 'http://localhost:11434';
++  chatModelEl.value = settings.chatModel ?? 'gemma4:12b';
++  for (const group of chatSettingsGroups) {
++    group.style.display = !!settings.chatEnabled ? 'block' : 'none';
++  }
++  chatVoiceModeHint.style.display = !!settings.chatEnabled ? 'block' : 'none';
++  chatOllamaGroup.style.display = !!settings.chatEnabled && (settings.chatProvider ?? 'ollama') === 'ollama' ? 'block' : 'none';
++  chatModelGroup.style.display = !!settings.chatEnabled ? 'block' : 'none';
+ }
+ 
+ window.dash.getModels().then(({ models }) => populateModelDatalist(models));
+diff --git a/src/dashboard.html b/src/dashboard.html
+index e375d19..f885577 100644
+--- a/src/dashboard.html
++++ b/src/dashboard.html
+@@ -566,6 +566,73 @@
+         <button class="btn" id="soundFilePetClear">清除</button>
+       </div>
+     </div>
++    <div class="panel-block">
++      <h3>🎤 语音设置</h3>
++
++      <div class="field-row">
++        <label for="voiceEnabled">启用语音输出与输入</label>
++        <input type="checkbox" id="voiceEnabled">
++      </div>
++      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
++
++      <div class="field-row" id="voiceSettingsGroup" style="display: none;">
++        <label for="voiceVolume">语音输出音量</label>
++        <input type="range" id="voiceVolume" min="0" max="1" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voiceVolumeValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup2" style="display: none;">
++        <label for="voiceRate">语速</label>
++        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voiceRateValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup3" style="display: none;">
++        <label for="voicePitch">音高</label>
++        <input type="range" id="voicePitch" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voicePitchValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
++        <label for="voicePushToTalkKey">推送通话快捷键</label>
++        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
++      </div>
++    </div>
++
++    <div class="panel-block">
++      <h3>💬 聊天设置</h3>
++
++      <div class="field-row">
++        <label for="chatEnabled">启用聊天</label>
++        <input type="checkbox" id="chatEnabled">
++      </div>
++      <p class="hint">用 Alt+A 快捷键或点工具栏打开聊天窗口</p>
++
++      <div class="field-row" id="chatSettingsGroup" style="display: none;">
++        <label for="chatVoiceMode">聊天时启用语音回复</label>
++        <input type="checkbox" id="chatVoiceMode">
++      </div>
++      <p class="hint" id="chatVoiceModeHint" style="display: none;">宠物会用语音读出聊天回复</p>
++
++      <div class="field-row" id="chatSettingsGroup2" style="display: none;">
++        <label for="chatProvider">聊天模型提供商</label>
++        <select id="chatProvider">
++          <option value="ollama">Ollama (本地)</option>
++          <option value="openai-compatible">OpenAI 兼容服务</option>
++        </select>
++      </div>
++
++      <div class="field-row" id="chatOllamaGroup" style="display: none;">
++        <label for="chatOllamaUrl">Ollama 地址</label>
++        <input type="text" id="chatOllamaUrl" placeholder="http://localhost:11434" style="flex:1; min-width:200px;">
++      </div>
++
++      <div class="field-row" id="chatModelGroup" style="display: none;">
++        <label for="chatModel">模型名称</label>
++        <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
++      </div>
++    </div>
++
+     <div class="panel-block">
+       <h3>聊天</h3>
+       <div class="field-row">
+diff --git a/src/index.html b/src/index.html
+index 91331b8..642a350 100644
+--- a/src/index.html
++++ b/src/index.html
+@@ -324,6 +324,28 @@
+   }
+   #chatPanelSend:hover { background: rgba(120, 24, 32, 0.2); }
+   #chatPanelSend:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(120, 24, 32, 0.1); }
++  #chatVoiceInput {
++    background: transparent;
++    border: 1px solid rgba(100, 100, 100, 0.3);
++    border-radius: 4px;
++    padding: 4px 8px;
++    cursor: pointer;
++    font-size: 16px;
++    transition: all 0.2s;
++  }
++  #chatVoiceInput:hover {
++    background: rgba(100, 150, 255, 0.2);
++    border-color: rgba(100, 150, 255, 0.5);
++  }
++  #chatVoiceInput.listening {
++    background: rgba(255, 100, 100, 0.3);
++    border-color: rgba(255, 100, 100, 0.8);
++    animation: pulse 0.5s infinite;
++  }
++  @keyframes pulse {
++    0%, 100% { opacity: 1; }
++    50% { opacity: 0.6; }
++  }
+   #chatPanelScreenshot {
+     flex: 0 0 auto;
+     border: 1px solid rgba(120, 24, 32, 0.35);
+@@ -720,7 +742,8 @@
+   <div id="chatScreenshotChip" style="display:none;">📷 已附上截图，问点什么吧 <button id="chatScreenshotChipClear" aria-label="移除截图">✕</button></div>
+   <div id="chatInputRow">
+     <button id="chatPanelScreenshot" title="截屏问他" aria-label="截屏问他">📸</button>
+-    <input id="chatPanelInput" type="text" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false">
++    <input id="chatPanelInput" type="text" placeholder="跟他说点什么… (F9 按键说话)" autocomplete="off" spellcheck="false">
++    <button id="chatVoiceInput" title="按住 F9 说话或点这个按钮">🎤</button>
+     <button id="chatPanelSend">发送</button>
+   </div>
+ </div>
+diff --git a/src/main.js b/src/main.js
+index b820e99..5eb5d34 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -1119,6 +1119,14 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
+       cfg.chat.enabled = !!value;
+       buildTrayMenu();
+       break;
++    case 'chatVoiceMode':
++      cfg.chat = cfg.chat ?? {};
++      cfg.chat.voiceMode = !!value;
++      break;
++    case 'chatOllamaUrl':
++      cfg.chat = cfg.chat ?? {};
++      cfg.chat.ollamaUrl = value;
++      break;
+     case 'musicNodEnabled':
+       // The ring toggle and right-click checkbox both flip the *runtime*
+       // musicNodEnabled variable already; this is what makes that choice
+@@ -1925,6 +1933,8 @@ function dashboardSnapshot() {
+       chatProvider: cfg.chat?.provider ?? 'ollama',
+       chatBaseUrl: cfg.chat?.baseUrl ?? '',
+       chatApiKeyEnv: cfg.chat?.apiKeyEnv ?? '',
++      chatVoiceMode: !!cfg.chat?.voiceMode,
++      chatOllamaUrl: cfg.chat?.ollamaUrl ?? 'http://localhost:11434',
+       workSupervisionEnabled: !!cfg.workSupervision?.enabled,
+       workSupervisionIntervalMs: cfg.workSupervision?.intervalMs ?? 180000,
+       sleepEnabled: !!cfg.sleepSchedule?.enabled,
+@@ -3177,9 +3187,19 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
+     .map(({ role, content }) => ({ role, content }));
+   context.push({ role: 'user', content: userText, images: [imageBase64] });
+   try {
++    // Check if voice mode is enabled to pass voice config for TTS
++    const voiceConfig = cfg.chat?.voiceMode ? cfg.voice : null;
+     const full = await streamChatReply(effectiveCfg, context, (delta) => {
+       if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
++      // If voice mode enabled, send delta for TTS processing
++      if (voiceConfig && alive()) {
++        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      }
+     });
++    // Signal completion for any remaining buffered speech
++    if (voiceConfig && alive()) {
++      win.webContents.send('pet:chat-complete', { text: full });
++    }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+@@ -3761,9 +3781,19 @@ ipcMain.on('pet:chat-send', async (_e, text) => {
+   const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : chatCfg.systemPrompt };
+   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
+   try {
++    // Check if voice mode is enabled to pass voice config for TTS
++    const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
+     const full = await streamChatReply(effectiveCfg, context, (delta) => {
+       if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
++      // If voice mode enabled, send delta for TTS processing
++      if (voiceConfig && alive()) {
++        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      }
+     });
++    // Signal completion for any remaining buffered speech
++    if (voiceConfig && alive()) {
++      win.webContents.send('pet:chat-complete', { text: full });
++    }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+diff --git a/src/preload.cjs b/src/preload.cjs
+index 0566eef..d68e507 100644
+--- a/src/preload.cjs
++++ b/src/preload.cjs
+@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('pet', {
+   onChatMessageDone: (fn) => ipcRenderer.on('pet:chat-message-done', (_e, d) => fn(d)),
+   onChatError: (fn) => ipcRenderer.on('pet:chat-error', (_e, d) => fn(d)),
+   onChatReply: (fn) => ipcRenderer.on('pet:chat-reply', (_e, d) => fn(d)),
++  onChatSpeak: (fn) => ipcRenderer.on('pet:chat-speak-delta', (_e, d) => fn(d)),
++  onChatComplete: (fn) => ipcRenderer.on('pet:chat-complete', (_e, d) => fn(d)),
+   onChatConvList: (fn) => ipcRenderer.on('pet:chat-conv-list', (_e, d) => fn(d)),
+   onTodos: (fn) => ipcRenderer.on('pet:todos', (_e, d) => fn(d)),
+   onTodoPanelReady: (fn) => ipcRenderer.on('pet:todo-panel-ready', (_e, d) => fn(d)),
+diff --git a/src/renderer.js b/src/renderer.js
+index 177b065..169401d 100644
+--- a/src/renderer.js
++++ b/src/renderer.js
+@@ -32,6 +32,7 @@ const chatPanelHistEl = document.getElementById('chatPanelHist');
+ const chatPanelNewEl = document.getElementById('chatPanelNew');
+ const chatConvListEl = document.getElementById('chatConvList');
+ const chatInputRowEl = document.getElementById('chatInputRow');
++const chatVoiceInputEl = document.getElementById('chatVoiceInput');
+ const todoPanelEl = document.getElementById('todoPanel');
+ const todoPanelCloseEl = document.getElementById('todoPanelClose');
+ const todoTabTodoEl = document.getElementById('todoTabTodo');
+@@ -412,6 +413,34 @@ window.pet.onChatHistory(({ messages }) => {
+ 
+ window.pet.onChatConvList(({ convs }) => renderConvList(convs));
+ 
++// Handle chat voice output: accumulate text deltas and speak when we hit sentence-ending punctuation
++let chatSpeechBuffer = '';
++let currentVoiceConfig = null;
++
++window.pet.onChatSpeak(({ delta, voiceConfig }) => {
++  // Store voice config for use in completion handler
++  currentVoiceConfig = voiceConfig;
++
++  // Accumulate text
++  if (!chatSpeechBuffer) chatSpeechBuffer = '';
++  chatSpeechBuffer += delta;
++
++  // Speak when we hit Chinese sentence-ending punctuation
++  if (/[。！？\n]$/.test(chatSpeechBuffer)) {
++    speak(chatSpeechBuffer, voiceConfig);
++    chatSpeechBuffer = '';
++  }
++});
++
++window.pet.onChatComplete(() => {
++  // Speak any remaining buffered text when chat completes
++  if (chatSpeechBuffer && currentVoiceConfig) {
++    speak(chatSpeechBuffer, currentVoiceConfig);
++  }
++  chatSpeechBuffer = '';
++  currentVoiceConfig = null;
++});
++
+ // Sending a second message while the first is still streaming used to
+ // silently reassign pendingBubbleEl to the new placeholder, losing the
+ // reference to the first one -- confirmed live: three messages sent in a
+@@ -1238,28 +1267,63 @@ window.pet.onScreenTip((tip) => {
+   }
+ });
+ 
++// Voice input button handlers (🎤 button in chat panel)
++let voiceInputActive = false;
++
++if (chatVoiceInputEl) {
++  chatVoiceInputEl.addEventListener('mousedown', () => {
++    if (!cfg.voice?.enabled) return;
++    voiceInputActive = true;
++    chatVoiceInputEl.classList.add('listening');
++    window.pet.voicePptStart();
++  });
++
++  chatVoiceInputEl.addEventListener('mouseup', () => {
++    voiceInputActive = false;
++    chatVoiceInputEl.classList.remove('listening');
++    window.pet.voicePptStop();
++  });
++}
++
+ // Voice STT: push-to-talk key binding. F9 by default, configurable.
+ // On keydown, send START to the STT helper; on keyup, send STOP.
+-// Recognized transcripts are routed through the exact same
+-// window.pet.chatSend() path as typed input.
++// Show listening state on the voice button when in chat panel.
+ window.addEventListener('keydown', (e) => {
+   const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
+   if (e.key === pttKey && cfg.voice?.enabled && !e.repeat) {
++    if (chatPanelOpen && chatVoiceInputEl) {
++      voiceInputActive = true;
++      chatVoiceInputEl.classList.add('listening');
++    }
+     window.pet.voicePptStart();
+   }
+ });
++
+ window.addEventListener('keyup', (e) => {
+   const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
+   if (e.key === pttKey && cfg.voice?.enabled) {
++    if (chatVoiceInputEl) {
++      voiceInputActive = false;
++      chatVoiceInputEl.classList.remove('listening');
++    }
+     window.pet.voicePptStop();
+   }
+ });
+ 
+-// Voice transcript callback: treated identically to a typed message sent
+-// via Enter press. Routes through window.pet.chatSend() so it hits all
+-// the same downstream chat logic, history, bubble display, etc.
++// Voice transcript callback: when chat panel is open, append transcript to input
++// field; otherwise send as a regular chat message like before.
+ window.pet.onVoiceTranscript((text) => {
+-  if (text) window.pet.chatSend(text);
++  if (text) {
++    if (chatPanelOpen && chatPanelInputEl) {
++      // Append to existing input or replace if empty
++      const current = chatPanelInputEl.value.trim();
++      chatPanelInputEl.value = current ? current + ' ' + text : text;
++      chatPanelInputEl.focus();
++    } else {
++      // Chat panel not open, send as regular message
++      window.pet.chatSend(text);
++    }
++  }
+ });
+ 
+ window.pet.onVoiceCallModeState(({ active }) => {

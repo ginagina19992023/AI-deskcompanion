@@ -9,9 +9,36 @@ export function resolveVoice(voices, name) {
   return voices.find((v) => v.name === name) ?? null;
 }
 
-/** Speak `text` aloud if cfg.enabled. No-op (not an error) if speechSynthesis is unavailable. */
-export function speak(text, cfg = {}) {
+/**
+ * Speak `text` aloud if cfg.enabled. Tries the main process's configured
+ * engine first (Piper/Edge, see pet:synthesize-speech in main.js) and plays
+ * back the resulting audio file; falls back to the browser's own
+ * speechSynthesis whenever that returns null (engine set to 'sapi', or any
+ * failure in the fallback chain already exhausted on the main-process
+ * side) so this never ends up silent.
+ */
+export async function speak(text, cfg = {}) {
   if (!cfg.enabled || !text) return;
+  const synthesizeSpeech = window.pet?.synthesizeSpeech ?? window.dash?.synthesizeSpeech;
+  if (synthesizeSpeech) {
+    try {
+      const { fileUrl } = await synthesizeSpeech(text);
+      if (fileUrl) {
+        const audio = new Audio(fileUrl);
+        audio.volume = cfg.volume ?? 1.0;
+        audio.playbackRate = cfg.rate ?? 1.0;
+        await audio.play();
+        return;
+      }
+    } catch {
+      // Falls through to the browser voice below -- a playback error here
+      // (e.g. a corrupt temp file) shouldn't mean total silence.
+    }
+  }
+  speakBrowser(text, cfg);
+}
+
+function speakBrowser(text, cfg) {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
   const utter = new SpeechSynthesisUtterance(text);
   const voice = resolveVoice(window.speechSynthesis.getVoices(), cfg.voiceName);

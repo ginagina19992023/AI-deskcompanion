@@ -1,0 +1,558 @@
+diff --git a/src/dashboard-preload.cjs b/src/dashboard-preload.cjs
+index a964282..663b4a0 100644
+--- a/src/dashboard-preload.cjs
++++ b/src/dashboard-preload.cjs
+@@ -42,11 +42,23 @@ contextBridge.exposeInMainWorld('dash', {
+   todoRemove: (id) => ipcRenderer.send('pet:todo-remove', id),
+   todoEdit: (fields) => ipcRenderer.send('pet:todo-edit', fields),
+   taskJump: (sessionId) => ipcRenderer.send('pet:task-jump', sessionId),
+   pomodoroStart: () => ipcRenderer.send('pet:pomodoro-start'),
+   pomodoroStop: () => ipcRenderer.send('pet:pomodoro-stop'),
+   outlookStatus: () => ipcRenderer.invoke('dashboard:outlook-status'),
+   outlookSetClientId: (payload) => ipcRenderer.invoke('dashboard:outlook-set-client-id', payload),
+   outlookConnect: () => ipcRenderer.invoke('dashboard:outlook-connect'),
+   outlookDisconnect: () => ipcRenderer.invoke('dashboard:outlook-disconnect'),
+   outlookSyncNow: () => ipcRenderer.invoke('dashboard:outlook-sync-now'),
++
++  chatSend: (text) => ipcRenderer.send('pet:chat-send', text),
++  chatGetHistory: () => ipcRenderer.invoke('dashboard:chat-get-history'),
++  onChatDelta: (cb) => ipcRenderer.on('pet:chat-delta', (_e, data) => cb(data)),
++  onChatMessageDone: (cb) => ipcRenderer.on('pet:chat-message-done', (_e, data) => cb(data)),
++  onChatError: (cb) => ipcRenderer.on('pet:chat-error', (_e, data) => cb(data)),
++  onChatSpeakDelta: (cb) => ipcRenderer.on('pet:chat-speak-delta', (_e, data) => cb(data)),
++  onChatComplete: (cb) => ipcRenderer.on('pet:chat-complete', (_e, data) => cb(data)),
++  voicePptStart: () => ipcRenderer.send('pet:voice-ppt-start'),
++  voicePptStop: () => ipcRenderer.send('pet:voice-ppt-stop'),
++  onVoiceTranscript: (cb) => ipcRenderer.on('pet:voice-transcript', (_e, text) => cb(text)),
++  onVoiceError: (cb) => ipcRenderer.on('pet:voice-error', (_e, data) => cb(data)),
+ });
+diff --git a/src/dashboard-renderer.js b/src/dashboard-renderer.js
+index 7ab3723..393f50c 100644
+--- a/src/dashboard-renderer.js
++++ b/src/dashboard-renderer.js
+@@ -1,19 +1,20 @@
+ // Dashboard: a normal resizable window, independent of the pet's own tiny
+ // frameless one. Talks to main.js purely over request/response ("dash.*",
+ // see dashboard-preload.cjs) rather than push events -- every mutating
+ // action just re-fetches afterward, which keeps this file simple since the
+ // window is opened deliberately and briefly, not something that needs to
+ // track live state the whole time it's open.
+ 
+ import { ATLAS, BASE_ROWS } from './atlas.js';
+ import { isOverdue, parseTodoInput } from './todos.js';
++import { speak } from './voice-tts.js';
+ 
+ // Sprite-sheet dimension check for imported character packs -- the exact
+ // same rule renderer.js's loadPet() applies to the two shipped pets, run
+ // here (not in main.js) because Electron's nativeImage can't decode these
+ // files reliably in the main process (measured: getSize() returns {0,0}
+ // for the real, working sebastian-raven spritesheet.webp) while a plain
+ // <img> element, same as this, always has.
+ function checkPackImage(url) {
+   return new Promise((resolve) => {
+     const img = new Image();
+@@ -69,20 +70,21 @@ function showSection(name) {
+   if (name === 'overview') refreshOverview();
+   if (name === 'characters') refreshCharacters();
+   if (name === 'memory') refreshMemory();
+   if (name === 'report') {
+     refreshReportList();
+     loadFocusHeatmap();
+     loadPomodoroList();
+   }
+   if (name === 'gestures') loadGestures();
+   if (name === 'automation') refreshAutomationOutlookStatus();
++  if (name === 'chat') loadChatTab();
+ }
+ for (const btn of navBtns) btn.addEventListener('click', () => showSection(btn.dataset.section));
+ 
+ // --- overview ----------------------------------------------------------
+ const overviewCardsEl = document.getElementById('overviewCards');
+ const overviewClaudeDetailEl = document.getElementById('overviewClaudeDetail');
+ 
+ function renderOverview(data) {
+   overviewCardsEl.replaceChildren();
+   const cards = [
+@@ -562,20 +564,120 @@ function renderSettings(settings) {
+   for (const group of chatSettingsGroups) {
+     group.style.display = !!settings.chatEnabled ? 'block' : 'none';
+   }
+   chatVoiceModeHint.style.display = !!settings.chatEnabled ? 'block' : 'none';
+   chatOllamaGroup.style.display = !!settings.chatEnabled && (settings.chatProvider ?? 'ollama') === 'ollama' ? 'block' : 'none';
+   chatModelGroup.style.display = !!settings.chatEnabled ? 'block' : 'none';
+ }
+ 
+ window.dash.getModels().then(({ models }) => populateModelDatalist(models));
+ 
++// --- chat tab ------------------------------------------------------
++const chatTabMessagesEl = document.getElementById('chatTabMessages');
++const chatTabInputEl = document.getElementById('chatTabInput');
++const chatTabSendEl = document.getElementById('chatTabSend');
++const chatTabVoiceBtnEl = document.getElementById('chatTabVoiceBtn');
++
++let chatTabPendingBubble = null;
++let chatTabSpeechBuffer = '';
++let chatTabVoiceConfig = null;
++let chatTabLoaded = false;
++
++function appendChatTabMessage(role, text) {
++  const div = document.createElement('div');
++  div.className = `chat-tab-msg ${role}`;
++  div.textContent = text;
++  chatTabMessagesEl.appendChild(div);
++  chatTabMessagesEl.scrollTop = chatTabMessagesEl.scrollHeight;
++  return div;
++}
++
++async function loadChatTab() {
++  if (chatTabLoaded) return;
++  chatTabLoaded = true;
++  const { messages } = await window.dash.chatGetHistory();
++  chatTabMessagesEl.replaceChildren();
++  for (const m of messages ?? []) {
++    if (m.role === 'user' || m.role === 'assistant') appendChatTabMessage(m.role, m.content);
++  }
++}
++
++function sendChatTabMessage() {
++  const text = chatTabInputEl.value.trim();
++  if (!text) return;
++  appendChatTabMessage('user', text);
++  chatTabInputEl.value = '';
++  chatTabPendingBubble = null;
++  window.dash.chatSend(text);
++}
++
++chatTabSendEl.addEventListener('click', sendChatTabMessage);
++chatTabInputEl.addEventListener('keydown', (e) => {
++  if (e.key === 'Enter') sendChatTabMessage();
++});
++
++window.dash.onChatDelta(({ text }) => {
++  if (!chatTabPendingBubble) chatTabPendingBubble = appendChatTabMessage('assistant', '');
++  chatTabPendingBubble.textContent += text;
++  chatTabMessagesEl.scrollTop = chatTabMessagesEl.scrollHeight;
++});
++
++window.dash.onChatMessageDone(() => {
++  chatTabPendingBubble = null;
++});
++
++window.dash.onChatError(({ message }) => {
++  appendChatTabMessage('error', message);
++  chatTabPendingBubble = null;
++});
++
++window.dash.onChatSpeakDelta(({ delta, voiceConfig }) => {
++  chatTabVoiceConfig = voiceConfig;
++  chatTabSpeechBuffer += delta;
++  if (/[。！？\n]$/.test(chatTabSpeechBuffer)) {
++    speak(chatTabSpeechBuffer, voiceConfig);
++    chatTabSpeechBuffer = '';
++  }
++});
++
++window.dash.onChatComplete(() => {
++  if (chatTabSpeechBuffer && chatTabVoiceConfig) {
++    speak(chatTabSpeechBuffer, chatTabVoiceConfig);
++  }
++  chatTabSpeechBuffer = '';
++});
++
++chatTabVoiceBtnEl.addEventListener('mousedown', () => {
++  chatTabVoiceBtnEl.classList.add('listening');
++  window.dash.voicePptStart();
++});
++chatTabVoiceBtnEl.addEventListener('mouseup', () => {
++  chatTabVoiceBtnEl.classList.remove('listening');
++  window.dash.voicePptStop();
++});
++chatTabVoiceBtnEl.addEventListener('mouseleave', () => {
++  if (chatTabVoiceBtnEl.classList.contains('listening')) {
++    chatTabVoiceBtnEl.classList.remove('listening');
++    window.dash.voicePptStop();
++  }
++});
++
++window.dash.onVoiceTranscript((text) => {
++  if (!text) return;
++  const current = chatTabInputEl.value.trim();
++  chatTabInputEl.value = current ? `${current} ${text}` : text;
++  chatTabInputEl.focus();
++});
++window.dash.onVoiceError(({ message }) => {
++  appendChatTabMessage('error', `语音识别出错：${message}`);
++});
++
+ // --- todos -------------------------------------------------------------
+ const dashTodoListEl = document.getElementById('dashTodoList');
+ const dashTodoInputEl = document.getElementById('dashTodoInput');
+ const dashTodoAddBtnEl = document.getElementById('dashTodoAddBtn');
+ 
+ function renderTodos(todos) {
+   dashTodoListEl.replaceChildren();
+   if (!todos.length) {
+     const empty = document.createElement('div');
+     empty.className = 'empty-state';
+diff --git a/src/dashboard.html b/src/dashboard.html
+index f885577..96f8be1 100644
+--- a/src/dashboard.html
++++ b/src/dashboard.html
+@@ -328,27 +328,35 @@
+     padding: 8px 10px;
+     border-left: 2px solid rgba(120, 24, 32, 0.15);
+     background: rgba(120, 24, 32, 0.03);
+     border-radius: 0 6px 6px 0;
+   }
+   .memory-history-item { display: flex; gap: 8px; font-size: 11px; }
+   .memory-history-time { color: rgba(40, 16, 20, 0.45); white-space: nowrap; flex: 0 0 auto; }
+   .memory-history-text { color: rgba(40, 16, 20, 0.7); }
+ 
+   .task-item-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(40, 16, 20, 0.7); margin-top: 3px; }
++
++  .chat-tab-msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; max-width: 85%; word-wrap: break-word; white-space: pre-wrap; }
++  .chat-tab-msg.user { background: rgba(120, 24, 32, 0.12); margin-left: auto; text-align: right; }
++  .chat-tab-msg.assistant { background: rgba(0, 0, 0, 0.05); margin-right: auto; }
++  .chat-tab-msg.error { background: rgba(200, 40, 40, 0.15); color: rgba(160, 20, 20, 0.9); margin-right: auto; font-size: 13px; }
++  #chatTabVoiceBtn.listening { background: rgba(255, 100, 100, 0.3); border-color: rgba(255, 100, 100, 0.8); animation: chatTabPulse 0.5s infinite; }
++  @keyframes chatTabPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+ </style>
+ </head>
+ <body>
+ <div id="sidebar">
+   <h1>桌面宠物控制面板</h1>
+   <ul id="navList">
+     <li><button class="nav-btn active" data-section="overview">概览</button></li>
++    <li><button class="nav-btn" data-section="chat">💬 聊天</button></li>
+     <li class="nav-group-label">设置</li>
+     <li><button class="nav-btn" data-section="models">模型</button></li>
+     <li><button class="nav-btn" data-section="automation">自动化</button></li>
+     <li><button class="nav-btn" data-section="toggles">功能开关</button></li>
+     <li><button class="nav-btn" data-section="shortcuts">快捷键</button></li>
+     <li class="nav-group-label">形象与手势</li>
+     <li><button class="nav-btn" data-section="characters">形象</button></li>
+     <li><button class="nav-btn" data-section="gestures">手势</button></li>
+     <li class="nav-group-label">记录与数据</li>
+     <li><button class="nav-btn" data-section="memory">记忆</button></li>
+@@ -370,20 +378,100 @@
+       <div id="overviewClaudeDetail" class="empty-state">暂无数据</div>
+     </div>
+     <div class="panel-block">
+       <h3>Claude 用量</h3>
+       <p class="hint" style="margin-top:0;">数据来自 Claude Code 官方的 statusLine 机制（每个会话自己上报上下文占用，5 小时/每周额度是账号级别，所有会话共享同一个数字），不是猜的也不是接的私有接口。</p>
+       <div id="claudeUsageSessions"></div>
+       <div id="claudeUsageLimits" style="margin-top:14px;"></div>
+     </div>
+   </section>
+ 
++  <section class="section" id="section-chat">
++    <div class="panel-block">
++      <h3>💬 跟宠物聊天</h3>
++      <div id="chatTabMessages" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: rgba(255,255,255,0.4);"></div>
++      <div style="display: flex; gap: 6px; align-items: center;">
++        <input type="text" id="chatTabInput" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false" style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(120,24,32,0.2);">
++        <button id="chatTabVoiceBtn" title="按住说话" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">🎤</button>
++        <button id="chatTabSend" class="btn">发送</button>
++      </div>
++    </div>
++
++    <!-- 下面这两个 panel-block 是从"功能开关"分页迁移过来的语音设置和聊天设置 -->
++    <div class="panel-block">
++      <h3>🎤 语音设置</h3>
++
++      <div class="field-row">
++        <label for="voiceEnabled">启用语音输出与输入</label>
++        <input type="checkbox" id="voiceEnabled">
++      </div>
++      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
++
++      <div class="field-row" id="voiceSettingsGroup" style="display: none;">
++        <label for="voiceVolume">语音输出音量</label>
++        <input type="range" id="voiceVolume" min="0" max="1" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voiceVolumeValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup2" style="display: none;">
++        <label for="voiceRate">语速</label>
++        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voiceRateValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup3" style="display: none;">
++        <label for="voicePitch">音高</label>
++        <input type="range" id="voicePitch" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voicePitchValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
++        <label for="voicePushToTalkKey">推送通话快捷键</label>
++        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
++      </div>
++    </div>
++
++    <div class="panel-block">
++      <h3>💬 聊天设置</h3>
++
++      <div class="field-row">
++        <label for="chatEnabled">启用聊天</label>
++        <input type="checkbox" id="chatEnabled">
++      </div>
++      <p class="hint">用 Alt+A 快捷键或点工具栏打开聊天窗口</p>
++
++      <div class="field-row" id="chatSettingsGroup" style="display: none;">
++        <label for="chatVoiceMode">聊天时启用语音回复</label>
++        <input type="checkbox" id="chatVoiceMode">
++      </div>
++      <p class="hint" id="chatVoiceModeHint" style="display: none;">宠物会用语音读出聊天回复</p>
++
++      <div class="field-row" id="chatSettingsGroup2" style="display: none;">
++        <label for="chatProvider">聊天模型提供商</label>
++        <select id="chatProvider">
++          <option value="ollama">Ollama (本地)</option>
++          <option value="openai-compatible">OpenAI 兼容服务</option>
++        </select>
++      </div>
++
++      <div class="field-row" id="chatOllamaGroup" style="display: none;">
++        <label for="chatOllamaUrl">Ollama 地址</label>
++        <input type="text" id="chatOllamaUrl" placeholder="http://localhost:11434" style="flex:1; min-width:200px;">
++      </div>
++
++      <div class="field-row" id="chatModelGroup" style="display: none;">
++        <label for="chatModel">模型名称</label>
++        <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
++      </div>
++    </div>
++  </section>
++
+   <section class="section" id="section-models">
+     <h2>模型</h2>
+     <p class="subtitle">屏幕提示 / 聊天各自用哪个模型——本机 Ollama，或者接入联网的云端模型（DeepSeek 等任何兼容 OpenAI 接口的服务）</p>
+     <div class="panel-block">
+       <h3>屏幕提示</h3>
+       <div class="field-row">
+         <label for="dashScreenTipProvider">来源</label>
+         <select id="dashScreenTipProvider">
+           <option value="ollama">本机 Ollama</option>
+           <option value="openai-compatible">联网（OpenAI 兼容接口）</option>
+@@ -559,87 +647,20 @@
+         <button class="btn" id="soundFileAlertPick">选择文件</button>
+         <button class="btn" id="soundFileAlertClear">清除</button>
+       </div>
+       <div class="sound-file-row">
+         <span class="sound-file-label">摸它 / 手势</span>
+         <span class="sound-file-current" id="soundFilePetName">（内置音效）</span>
+         <button class="btn" id="soundFilePetPick">选择文件</button>
+         <button class="btn" id="soundFilePetClear">清除</button>
+       </div>
+     </div>
+-    <div class="panel-block">
+-      <h3>🎤 语音设置</h3>
+-
+-      <div class="field-row">
+-        <label for="voiceEnabled">启用语音输出与输入</label>
+-        <input type="checkbox" id="voiceEnabled">
+-      </div>
+-      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
+-
+-      <div class="field-row" id="voiceSettingsGroup" style="display: none;">
+-        <label for="voiceVolume">语音输出音量</label>
+-        <input type="range" id="voiceVolume" min="0" max="1" step="0.1" style="flex:1; max-width:240px;">
+-        <span id="voiceVolumeValue" class="hint" style="margin:0;"></span>
+-      </div>
+-
+-      <div class="field-row" id="voiceSettingsGroup2" style="display: none;">
+-        <label for="voiceRate">语速</label>
+-        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
+-        <span id="voiceRateValue" class="hint" style="margin:0;"></span>
+-      </div>
+-
+-      <div class="field-row" id="voiceSettingsGroup3" style="display: none;">
+-        <label for="voicePitch">音高</label>
+-        <input type="range" id="voicePitch" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
+-        <span id="voicePitchValue" class="hint" style="margin:0;"></span>
+-      </div>
+-
+-      <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
+-        <label for="voicePushToTalkKey">推送通话快捷键</label>
+-        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
+-      </div>
+-    </div>
+-
+-    <div class="panel-block">
+-      <h3>💬 聊天设置</h3>
+-
+-      <div class="field-row">
+-        <label for="chatEnabled">启用聊天</label>
+-        <input type="checkbox" id="chatEnabled">
+-      </div>
+-      <p class="hint">用 Alt+A 快捷键或点工具栏打开聊天窗口</p>
+-
+-      <div class="field-row" id="chatSettingsGroup" style="display: none;">
+-        <label for="chatVoiceMode">聊天时启用语音回复</label>
+-        <input type="checkbox" id="chatVoiceMode">
+-      </div>
+-      <p class="hint" id="chatVoiceModeHint" style="display: none;">宠物会用语音读出聊天回复</p>
+-
+-      <div class="field-row" id="chatSettingsGroup2" style="display: none;">
+-        <label for="chatProvider">聊天模型提供商</label>
+-        <select id="chatProvider">
+-          <option value="ollama">Ollama (本地)</option>
+-          <option value="openai-compatible">OpenAI 兼容服务</option>
+-        </select>
+-      </div>
+-
+-      <div class="field-row" id="chatOllamaGroup" style="display: none;">
+-        <label for="chatOllamaUrl">Ollama 地址</label>
+-        <input type="text" id="chatOllamaUrl" placeholder="http://localhost:11434" style="flex:1; min-width:200px;">
+-      </div>
+-
+-      <div class="field-row" id="chatModelGroup" style="display: none;">
+-        <label for="chatModel">模型名称</label>
+-        <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
+-      </div>
+-    </div>
+-
+     <div class="panel-block">
+       <h3>聊天</h3>
+       <div class="field-row">
+         <label for="dashChatEnabled">跟他聊天功能</label>
+         <input type="checkbox" id="dashChatEnabled">
+       </div>
+     </div>
+     <div class="panel-block">
+       <h3>听歌点头</h3>
+       <div class="field-row">
+diff --git a/src/main.js b/src/main.js
+index 5eb5d34..df9189c 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -583,24 +583,26 @@ function stopCameraSense() {
+   cameraSenseWatcher = null;
+ }
+ 
+ function startVoiceStt() {
+   if (voiceSttWatcher) return;
+   voiceSttWatcher = createVoiceSttWatcher({
+     scriptPath: join(__dirname, '..', 'tools', 'voice-stt.ps1'),
+     onTranscript: (text) => {
+       if (cfg.debug) console.log('[voice-stt] transcript:', text);
+       if (alive()) win.webContents.send('pet:voice-transcript', text);
++      if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-transcript', text);
+     },
+     onError: (err) => {
+       if (cfg.debug) console.error('[voice-stt]', err.message);
+       if (alive()) win.webContents.send('pet:voice-error', { message: err.message });
++      if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-error', { message: err.message });
+     },
+   });
+ }
+ 
+ function stopVoiceStt() {
+   voiceSttWatcher?.stop();
+   voiceSttWatcher = null;
+ }
+ 
+ ipcMain.on('pet:voice-ppt-start', () => {
+@@ -1979,20 +1981,21 @@ function dashboardSnapshot() {
+     memoryCount: petMemory.length,
+     actionMapping: {
+       rowCount: activePet().hasExtendedRows ? ATLAS.rows : BASE_ROWS,
+       rowLabels: activePet().rowLabels ?? null,
+       claudeStatusRows: activePet().claudeStatusRows ?? {},
+     },
+   };
+ }
+ 
+ ipcMain.handle('dashboard:get-data', () => dashboardSnapshot());
++ipcMain.handle('dashboard:chat-get-history', () => ({ messages: curConv().messages }));
+ ipcMain.handle('dashboard:get-memory', () => dashboardMemoryPayload());
+ ipcMain.handle('dashboard:delete-memory', (_e, id) => {
+   petMemory = petMemory.filter((m) => m.id !== id);
+   saveMemory();
+   return { ok: true };
+ });
+ ipcMain.handle('dashboard:clear-memory', () => {
+   petMemory = [];
+   saveMemory();
+   return { ok: true };
+@@ -3751,66 +3754,68 @@ async function extractActivityMemoryFacts() {
+     } catch (err) {
+       if (cfg.debug) console.error('[memory-activity] screen-observation extraction failed:', err.message);
+     }
+   }
+ 
+   saveJsonObject(activityMemoryStatePath, { lastTs: now });
+ }
+ 
+ let chatRequestInFlight = false;
+ 
+-ipcMain.on('pet:chat-send', async (_e, text) => {
+-  if (typeof text !== 'string' || !text.trim() || !alive()) return;
++ipcMain.on('pet:chat-send', async (e, text) => {
++  const senderWin = BrowserWindow.fromWebContents(e.sender);
++  const replyAlive = () => senderWin && !senderWin.isDestroyed();
++  if (typeof text !== 'string' || !text.trim() || !replyAlive()) return;
+   if (chatRequestInFlight) {
+-    win.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
++    senderWin.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
+     return;
+   }
+   const chatCfg = cfg.chat ?? {};
+   if (!chatCfg.enabled) {
+-    win.webContents.send('pet:chat-error', { message: '聊天功能未开启（config.json 里 chat.enabled）。' });
++    senderWin.webContents.send('pet:chat-error', { message: '聊天功能未开启（config.json 里 chat.enabled）。' });
+     return;
+   }
+   chatRequestInFlight = true;
+   const userText = text.slice(0, 1000);
+   const conv = curConv();
+   conv.messages.push({ role: 'user', content: userText, ts: Date.now() });
+   if (conv.title === '新对话') conv.title = userText.slice(0, 18);
+   conv.updatedAt = Date.now();
+   saveChatConvs();
+   const pet = activePet();
+   const basePrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
+   const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : chatCfg.systemPrompt };
+   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
+   try {
+     // Check if voice mode is enabled to pass voice config for TTS
+     const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
+     const full = await streamChatReply(effectiveCfg, context, (delta) => {
+-      if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
++      if (replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: delta });
+       // If voice mode enabled, send delta for TTS processing
+-      if (voiceConfig && alive()) {
+-        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      if (voiceConfig && replyAlive()) {
++        senderWin.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
+       }
+     });
+     // Signal completion for any remaining buffered speech
+-    if (voiceConfig && alive()) {
+-      win.webContents.send('pet:chat-complete', { text: full });
++    if (voiceConfig && replyAlive()) {
++      senderWin.webContents.send('pet:chat-complete', { text: full });
+     }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+-    if (alive()) win.webContents.send('pet:chat-message-done', { text: full });
++    if (replyAlive()) senderWin.webContents.send('pet:chat-message-done', { text: full });
+     // Fire-and-forget -- must not delay the reply the user is already
+     // looking at, and a failed extraction shouldn't surface as a chat error.
+     extractMemoryFacts(userText, full, chatCfg);
+   } catch (err) {
+     if (cfg.debug) console.error('[chat]', err.message);
+-    if (alive()) win.webContents.send('pet:chat-error', { message: err.message });
++    if (replyAlive()) senderWin.webContents.send('pet:chat-error', { message: err.message });
+   } finally {
+     chatRequestInFlight = false;
+   }
+ });
+ 
+ app.whenReady().then(() => {
+   createWindow();
+   buildTray();
+ 
+ 

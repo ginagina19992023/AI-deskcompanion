@@ -79,5 +79,6 @@ contextBridge.exposeInMainWorld('dash', {
   onChatConvList: (cb) => ipcRenderer.on('pet:chat-conv-list', (_e, data) => cb(data)),
   onChatHistory: (cb) => ipcRenderer.on('pet:chat-history', (_e, data) => cb(data)),
   captureScreenshot: () => ipcRenderer.invoke('pet:capture-screenshot'),
+  synthesizeSpeech: (text) => ipcRenderer.invoke('pet:synthesize-speech', text),
   chatSendWithImage: (text, imageBase64) => ipcRenderer.send('pet:chat-send-with-image', { text, imageBase64 }),
 });

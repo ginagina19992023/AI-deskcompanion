@@ -1,0 +1,489 @@
+diff --git a/.superpowers/sdd/2026-08-29-voice-chat-integration/task-8-report.md b/.superpowers/sdd/2026-08-29-voice-chat-integration/task-8-report.md
+new file mode 100644
+index 0000000..4b1462c
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-29-voice-chat-integration/task-8-report.md
+@@ -0,0 +1,37 @@
++# Task 8 Report: Chat Emotion Reaction
++
++**Status:** DONE
++
++**Commits:** `74a9990` 新增聊天情绪触发宠物动作和emoji反应 (on `main`, following `5671a0b`)
++
++**Files Changed:**
++- `D:/GitHub/AI-deskcompanion/src/chat.js` — added exported `EMOTION_TAG_INSTRUCTION` constant.
++- `D:/GitHub/AI-deskcompanion/src/main.js` — imports `EMOTION_TAG_INSTRUCTION`; appended it to both `effectiveCfg.systemPrompt` constructions (`pet:chat-send-with-image` ~L3192, `pet:chat-send` ~L3794); added module-level `EMOTION_TAG_RE` and `EMOTION_EMOJI` near `CHAT_CONTEXT_MESSAGES` (~L3044); added emotion-tag buffering/parsing inside both handlers' `onDelta` callbacks, and stripped the tag from the `full` string returned by `streamChatReply` before it's used for conversation history / `pet:chat-complete` / `pet:chat-message-done` / `extractMemoryFacts` / `saveScreenTip`.
++- `D:/GitHub/AI-deskcompanion/src/renderer.js` — added `spawnEmojiReaction`/`drawEmojiReactParticles` one-shot emoji particle system (~L1396-1436, next to the existing `noteParticles` music-beat system); added `window.pet.onChatEmotion(...)` listener next to `playAnimationRow`/`onPlayRow` (~L1440); wired `drawEmojiReactParticles(nowMs)` into `render()` next to the existing `drawNoteParticles(nowMs)` call.
++- `D:/GitHub/AI-deskcompanion/src/preload.cjs` — added `onChatEmotion` IPC bridge next to `onChatComplete`.
++- `D:/GitHub/AI-deskcompanion/config.default.json` — added `_emotionRows`/`emotionRows` for both `sebastian-raven` and `ciel-young-master`, next to each pet's `claudeStatusRows`.
++- `D:/GitHub/AI-deskcompanion/config.json` (gitignored, not committed) — mirrored the same `emotionRows` addition for local testing/dev-parity, since this is the file actually loaded at runtime when present.
++
++**Design Decisions:**
++- Single-call self-tagging: the model prepends `[EMOTION:xxx]\n` as the first line of its streamed reply (`chat.js`'s `EMOTION_TAG_INSTRUCTION`), avoiding a second classification call.
++- Buffering in `onDelta`: both `pet:chat-send` and `pet:chat-send-with-image` handlers accumulate incoming deltas into `introBuffer` until a `\n` is seen (tag line complete) or the buffer exceeds 60 chars (safety valve for models that don't comply with the format — otherwise no character would ever reach the display since we'd wait forever for a newline). Once resolved, the tag (if matched by `EMOTION_TAG_RE`) is stripped and `pet:chat-emotion` is emitted with `{ emotion, emoji, row }`; if the format wasn't followed, the buffered text is passed through unchanged and no reaction fires.
++- `pet:chat-emotion` is always sent to `win` (the floating pet window), never `senderWin` — the emotion reaction must play on the pet sprite regardless of whether the chat was sent from the pet's own bubble UI or from the Dashboard's chat tab (which has no sprite to animate).
++- **Deviation from the literal task pseudocode, done deliberately for correctness:** `streamChatReply`'s returned `full` string is built internally from the *raw* deltas (`full += delta` happens before `onDelta(delta)` is even called — see `chat.js`'s `streamOllamaChat`/`streamOpenAiCompatibleChat`), so it is NOT automatically clean just because `onDelta` forwarded a stripped `outDelta`. Without an extra strip, the `[EMOTION:xxx]` tag would still land in: saved conversation history (`conv.messages`), the final chat bubble text (`pet:chat-message-done` — confirmed `renderer.js`'s `onChatMessageDone` blindly overwrites the bubble's `textContent` with this value, which would visibly reintroduce the tag after the streamed/stripped version had already displayed correctly), the TTS completion signal (`pet:chat-complete`), `extractMemoryFacts`, and (image handler) `saveScreenTip`'s `记录` entry. Added `const full = rawFull.replace(EMOTION_TAG_RE, '');` right after each `streamChatReply` call and use `full` (not the raw promise result) everywhere downstream. `EMOTION_TAG_RE` was hoisted to module scope so both handlers share one instance.
++- Emoji particle animation (`renderer.js`) mirrors the existing note-particle system's visual language (single font-drawn glyph, alpha fade) but is a one-shot bounce-in-then-drift-fade rather than a continuous per-beat stream, per the task spec's `EMOJI_REACT_LIFE_MS`/bounce-scale timing.
++- `emotionRows` in config is deliberately sparse (no `neutral` mapping) — emotions without a row mapping still spawn the emoji via `EMOTION_EMOJI`, just no forced pose change, matching the "grow later" design noted in the `_emotionRows` config comment.
++
++**Tests Run:**
++- `node -c src/main.js` — OK
++- `node -c src/chat.js` — OK
++- `node -c src/renderer.js` — OK
++- `node -c src/preload.cjs` — OK
++- `node -e "JSON.parse(require('fs').readFileSync('config.default.json','utf8'))"` — OK, valid JSON
++- `node -e "JSON.parse(require('fs').readFileSync('config.json','utf8'))"` — OK, valid JSON
++- `npm start` run for ~12s then terminated — no startup errors, no stack traces in log; only expected `[companion watcher] watcher exited (code=143 signal=null)` from the SIGTERM on timeout. No stray `electron.exe` processes left after (`tasklist` clean).
++
++**Self-Review:**
++- Verified the non-compliant-model fallback path: if the model never emits a `\n` within the tag window, buffering stops at >60 chars and the whole buffered chunk is flushed as-is (no tag stripped, no `pet:chat-emotion` fired) — worst case this delays the very first ~60 characters of the reply reaching the bubble by however long it takes the model to stream that much, not the whole reply. This is a real behavior — with slow local models producing single-token deltas, up to the first 60 chars could appear as one lump instead of streaming smoothly — but is a small, bounded window and stops the app from ever hard-stalling waiting for a newline that never comes.
++- Confirmed the `full`-stripping fix described above was necessary, not speculative: traced `streamOllamaChat`/`streamOpenAiCompatibleChat` in `chat.js`, both build their returned string from the same `delta` passed to `onDelta`, independent of `onDelta`'s side effects, and confirmed `renderer.js`'s `onChatMessageDone` handler (`pendingBubbleEl.textContent = text`) would have re-displayed the raw tag on completion had this not been fixed.
++- Confirmed `pet.emotionRows` (not `chatCfg`/`visionCfg`) is read from `activePet()`, matching both pets' `config.default.json` placement.
++- `EMOTION_TAG_RE` only recognizes the five documented emotions (`happy|sad|angry|surprised|neutral`); an unrecognized tag word (e.g. model hallucinating `[EMOTION:excited]`) falls into the "no match" branch, passes the raw line through untouched (including the bracket syntax, visible to the user) and fires no reaction — acceptable given `EMOTION_TAG_INSTRUCTION` explicitly constrains the model to that vocabulary, but noted as a soft edge case worth watching if this shows up in practice with a chattier model.
++- Did not touch the two other `streamChatReply` call sites in `main.js` (~L329, ~L438, ~L1452, and the memory-extraction/report-generation ones around L3560-3748) — none of those are user-facing chat replies through the pet UI, so they were correctly left without the emotion instruction/parsing per the task's scope (only `pet:chat-send` and `pet:chat-send-with-image`).
+diff --git a/config.default.json b/config.default.json
+index abb0bfa..5ca77c4 100644
+--- a/config.default.json
++++ b/config.default.json
+@@ -287,20 +287,27 @@
+         "_lieDown": "走到屏幕最底（dockToTaskbar 落地点）偶尔会变身特效切回人形，切成行12侧卧小憩，而不是每次都躺——那是他最常落脚的高度，次次都躺会显得机械。窗口角落「坐角」尚无对应素材，未实现。",
+         "lieDownChance": 0.35
+       },
+       "_claudeStatusRows": "working=8持餐刀(动手操作/写改跑命令) review=7闭眼鞠躬(只读查看，Read/Grep/Glob/WebFetch/WebSearch) waiting=6端茶托盘(等你批准) error=5黑鸦啄食(出岔子)。四个互不相同。",
+       "claudeStatusRows": {
+         "working": 8,
+         "review": 7,
+         "waiting": 6,
+         "error": 5
+       },
++      "_emotionRows": "聊天回复情绪→动作行号映射；模型在回复第一行自报情绪（见 chat.js 的 EMOTION_TAG_INSTRUCTION），主进程解析后触发对应动作+头顶emoji。当前先复用已有素材凑数（sad借闭眼鞠躬的低落感，angry借黑鸦啄食本来就带的不悦感），以后美术素材更丰富时可以直接改这里的行号，不用动代码。没写在这里的情绪（如 neutral）只弹emoji不强制动作。",
++      "emotionRows": {
++        "happy": 3,
++        "sad": 7,
++        "angry": 5,
++        "surprised": 4
++      },
+       "rowLabels": [
+         "待机",
+         "化鸦－右走",
+         "化鸦－左走",
+         "脱帽致意",
+         "戴礼帽",
+         "黑鸦啄食",
+         "端茶托盘",
+         "闭眼鞠躬",
+         "持餐刀",
+@@ -379,20 +386,27 @@
+         "_celebrate": "夏尔没有 spinEnabled 那套 360° 拧头，任务完成时改播这个——第3行「吩咐塞巴斯/伸手受吻」，全库里他最有戏剧性的一个动作。",
+         "celebrateRow": 3
+       },
+       "_claudeStatusRows": "working=4海盗马戏团装(动手操作) review=8下棋思考与盖印(只读查看/审阅，字面意义上的“审阅”) waiting=7端茶(等你吩咐) error=5抱臂不悦敲杖(出岔子不耐烦)。四个互不相同。",
+       "claudeStatusRows": {
+         "working": 4,
+         "review": 8,
+         "waiting": 7,
+         "error": 5
+       },
++      "_emotionRows": "同塞巴斯蒂安字段说明。夏尔的 angry 直接复用「抱臂不悦敲杖」这个本来就是不悦情绪的行，happy 复用 celebrateRow 同一行（吩咐塞巴斯/受吻，全库最有戏剧性的动作）。",
++      "emotionRows": {
++        "happy": 3,
++        "sad": 8,
++        "angry": 5,
++        "surprised": 4
++      },
+       "rowLabels": [
+         "手杖站姿",
+         "步行－右",
+         "步行－左",
+         "吩咐塞巴斯/受吻",
+         "海盗马戏团装",
+         "抱臂不悦敲杖",
+         "粉白女装",
+         "端茶",
+         "下棋与盖印"
+diff --git a/src/chat.js b/src/chat.js
+index d661661..cb44696 100644
+--- a/src/chat.js
++++ b/src/chat.js
+@@ -11,20 +11,30 @@
+ //
+ // Streams token deltas via `onDelta` rather than waiting for the full
+ // reply -- measured ~40-55s for a single non-streaming reply from a 12B
+ // local model, which reads as a hung app with nothing on screen. Streaming
+ // text in as it's generated is a real fix for that, not just a cosmetic
+ // typewriter effect.
+ 
+ const DEFAULT_SYSTEM_PROMPT =
+   'You are a desktop pet companion. Reply in Chinese, in character, in one or two short sentences -- this is a small chat bubble, not an essay.';
+ 
++// Appended to every chat system prompt so the model self-tags its emotional
++// tone as the very first line of its reply -- piggybacks on the existing
++// single streaming call instead of a second classification request, which
++// would double latency/cost for something this app's config comments
++// repeatedly treat as a hard constraint (see the 40-55s non-streaming
++// measurement above). main.js's chat handlers parse and strip this line
++// before it ever reaches the display bubble.
++export const EMOTION_TAG_INSTRUCTION =
++  '\n\n在你的回复最开头单独一行，用方括号标注你此刻的情绪，格式严格为 [EMOTION:xxx]，xxx 只能是以下之一（英文小写）：happy, sad, angry, surprised, neutral。这一行之后另起一行才是你真正对用户说的话。';
++
+ async function readNdjsonStream(res, onLine) {
+   const reader = res.body.getReader();
+   const decoder = new TextDecoder();
+   let buf = '';
+   for (;;) {
+     const { value, done } = await reader.read();
+     if (done) break;
+     buf += decoder.decode(value, { stream: true });
+     const lines = buf.split('\n');
+     buf = lines.pop() ?? '';
+diff --git a/src/main.js b/src/main.js
+index df9189c..c07cea7 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -4,21 +4,21 @@ import { createServer } from 'node:http';
+ import { fileURLToPath, pathToFileURL } from 'node:url';
+ import { basename, dirname, isAbsolute, join } from 'node:path';
+ import { homedir } from 'node:os';
+ import { spawn } from 'node:child_process';
+ import { ATLAS, BASE_ROWS } from './atlas.js';
+ import { companionAnchor } from './companion.js';
+ import { createCompanionWatcher } from './companion-watcher.js';
+ import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } from './screen-tip.js';
+ import { createCameraSenseWatcher } from './camera-sense.js';
+ import { createVoiceSttWatcher } from './voice-stt.js';
+-import { streamChatReply } from './chat.js';
++import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
+ import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
+ import { connectOutlookAccount, disconnectOutlookAccount, getOutlookAccountStatus, syncOnce as syncOutlookOnce, deleteOutlookTask } from './outlook-sync.js';
+ import { startPomodoro, pomodoroRemainingMs } from './pomodoro.js';
+ import { pickMusicComment, classifyMusicPulse } from './music-comment.js';
+ import { normalizeAiActivity, pickAllContextActivities, pickPrimaryActivity } from './ai-activity.js';
+ import { createCodexActivityReader } from './codex-activity.js';
+ import { buildSemanticMemoryGraph, cosineSimilarity } from './memory-clusters.js';
+ import { filterStaleRateLimits } from './claude-status.js';
+ import {
+   resizedBoundsKeepingAnchor,
+@@ -3036,20 +3036,29 @@ ipcMain.on('pet:bubble-space', (_e, { needed } = {}) => {
+ // screenTips (ollama locally by default, or an openai-compatible cloud API
+ // as an explicit opt-in).
+ // Multiple named conversations, not one flat log -- so you can start fresh
+ // without losing an earlier thread, and browse back to it later, same as
+ // the reference chat panel this was modeled on.
+ let chatConvs = loadJsonArray(chatConvsPath);
+ let curConvId = chatConvs.length ? chatConvs[chatConvs.length - 1].id : null;
+ const CHAT_CONVS_MAX = 100; // conversations kept
+ const CHAT_CONTEXT_MESSAGES = 16; // most recent messages of the *current* conv sent to the model
+ 
++// Chat-reply emotion reaction (see chat.js's EMOTION_TAG_INSTRUCTION): the
++// model self-tags its tone as the first line of its reply, e.g.
++// "[EMOTION:happy]\n<actual reply>". Both chat handlers below buffer that
++// first line out of the streamed deltas, use it to trigger a pose+emoji on
++// the pet, and strip it before the tag ever reaches a chat bubble, saved
++// conversation history, or memory extraction.
++const EMOTION_TAG_RE = /^\[EMOTION:(happy|sad|angry|surprised|neutral)\]\s*\n?/i;
++const EMOTION_EMOJI = { happy: '😊', sad: '😔', angry: '😠', surprised: '😲', neutral: null };
++
+ function saveChatConvs() {
+   if (chatConvs.length > CHAT_CONVS_MAX) chatConvs = chatConvs.slice(-CHAT_CONVS_MAX);
+   saveJsonArray(chatConvsPath, chatConvs);
+ }
+ 
+ function curConv() {
+   let c = chatConvs.find((x) => x.id === curConvId);
+   if (!c) {
+     c = { id: Date.now().toString(36), title: '新对话', messages: [], updatedAt: Date.now() };
+     chatConvs.push(c);
+@@ -3174,38 +3183,66 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
+   }
+   chatRequestInFlight = true;
+   const userText = text.slice(0, 1000);
+   const conv = curConv();
+   conv.messages.push({ role: 'user', content: userText, ts: Date.now() });
+   if (conv.title === '新对话') conv.title = userText.slice(0, 18);
+   conv.updatedAt = Date.now();
+   saveChatConvs();
+   const pet = activePet();
+   const basePrompt = pet.chatSystemPrompt ?? cfg.chat?.systemPrompt;
+-  const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : visionCfg.systemPrompt };
++  const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${EMOTION_TAG_INSTRUCTION}` : `${visionCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
+   // Recent text history for continuity, then this turn WITH the image
+   // attached -- only the current message carries pixels, older turns stay
+   // text-only (Ollama attaches images per-message, not per-conversation).
+   const context = conv.messages
+     .slice(-CHAT_CONTEXT_MESSAGES, -1)
+     .map(({ role, content }) => ({ role, content }));
+   context.push({ role: 'user', content: userText, images: [imageBase64] });
+   try {
+     // Check if voice mode is enabled to pass voice config for TTS
+     const voiceConfig = cfg.chat?.voiceMode ? cfg.voice : null;
+-    const full = await streamChatReply(effectiveCfg, context, (delta) => {
+-      if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
++    // Same emotion-tag buffering as pet:chat-send, see the comment there --
++    // this path (screenshot Q&A) sends to `win` directly, not senderWin,
++    // same as the rest of this handler already did before this change.
++    let introBuffer = '';
++    let introResolved = false;
++    const rawFull = await streamChatReply(effectiveCfg, context, (delta) => {
++      let outDelta = delta;
++      if (!introResolved) {
++        introBuffer += delta;
++        const hasNewline = introBuffer.includes('\n');
++        if (hasNewline || introBuffer.length > 60) {
++          introResolved = true;
++          const match = introBuffer.match(EMOTION_TAG_RE);
++          if (match) {
++            const emotion = match[1].toLowerCase();
++            outDelta = introBuffer.slice(match[0].length);
++            const row = pet.emotionRows?.[emotion];
++            const emoji = EMOTION_EMOJI[emotion];
++            if (alive() && (row !== undefined || emoji)) {
++              win.webContents.send('pet:chat-emotion', { emotion, emoji, row });
++            }
++          } else {
++            outDelta = introBuffer; // model didn't follow the tag format -- pass through as-is
++          }
++        } else {
++          outDelta = '';
++        }
++      }
++      if (outDelta && alive()) win.webContents.send('pet:chat-delta', { text: outDelta });
+       // If voice mode enabled, send delta for TTS processing
+-      if (voiceConfig && alive()) {
+-        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      if (voiceConfig && outDelta && alive()) {
++        win.webContents.send('pet:chat-speak-delta', { delta: outDelta, voiceConfig });
+       }
+     });
++    const full = rawFull.replace(EMOTION_TAG_RE, '');
+     // Signal completion for any remaining buffered speech
+     if (voiceConfig && alive()) {
+       win.webContents.send('pet:chat-complete', { text: full });
+     }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+     if (alive()) win.webContents.send('pet:chat-message-done', { text: full });
+     // Same shared history the ambient screen tips use, so this is browsable
+     // from the 记录 page too -- the pet's actual reply (real analysis of
+@@ -3776,32 +3813,68 @@ ipcMain.on('pet:chat-send', async (e, text) => {
+   }
+   chatRequestInFlight = true;
+   const userText = text.slice(0, 1000);
+   const conv = curConv();
+   conv.messages.push({ role: 'user', content: userText, ts: Date.now() });
+   if (conv.title === '新对话') conv.title = userText.slice(0, 18);
+   conv.updatedAt = Date.now();
+   saveChatConvs();
+   const pet = activePet();
+   const basePrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
+-  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : chatCfg.systemPrompt };
++  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${EMOTION_TAG_INSTRUCTION}` : `${chatCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
+   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
+   try {
+     // Check if voice mode is enabled to pass voice config for TTS
+     const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
+-    const full = await streamChatReply(effectiveCfg, context, (delta) => {
+-      if (replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: delta });
++    // Buffer the reply's first line so the model's self-tagged [EMOTION:xxx]
++    // (see chat.js's EMOTION_TAG_INSTRUCTION, appended to effectiveCfg above)
++    // never reaches the display bubble or TTS -- withheld from onDelta's
++    // output until a newline closes the tag line, or a safety-valve length
++    // is hit in case the model doesn't follow the format (which would
++    // otherwise stall all output waiting for a newline that never comes).
++    let introBuffer = '';
++    let introResolved = false;
++    const rawFull = await streamChatReply(effectiveCfg, context, (delta) => {
++      let outDelta = delta;
++      if (!introResolved) {
++        introBuffer += delta;
++        const hasNewline = introBuffer.includes('\n');
++        if (hasNewline || introBuffer.length > 60) {
++          introResolved = true;
++          const match = introBuffer.match(EMOTION_TAG_RE);
++          if (match) {
++            const emotion = match[1].toLowerCase();
++            outDelta = introBuffer.slice(match[0].length);
++            const row = pet.emotionRows?.[emotion];
++            const emoji = EMOTION_EMOJI[emotion];
++            if (alive() && (row !== undefined || emoji)) {
++              win.webContents.send('pet:chat-emotion', { emotion, emoji, row });
++            }
++          } else {
++            outDelta = introBuffer; // model didn't follow the tag format -- pass through as-is
++          }
++        } else {
++          outDelta = ''; // still buffering the possible tag line, nothing to show yet
++        }
++      }
++      if (outDelta && replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: outDelta });
+       // If voice mode enabled, send delta for TTS processing
+-      if (voiceConfig && replyAlive()) {
+-        senderWin.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      if (voiceConfig && outDelta && replyAlive()) {
++        senderWin.webContents.send('pet:chat-speak-delta', { delta: outDelta, voiceConfig });
+       }
+     });
++    // streamChatReply's returned string is built from the raw deltas
++    // regardless of what onDelta forwarded, so it still carries the
++    // [EMOTION:xxx] line -- strip it here too before it lands in saved
++    // history, the TTS-completion signal, the final bubble text, or memory
++    // extraction (all of which use this value, not the streamed deltas).
++    const full = rawFull.replace(EMOTION_TAG_RE, '');
+     // Signal completion for any remaining buffered speech
+     if (voiceConfig && replyAlive()) {
+       senderWin.webContents.send('pet:chat-complete', { text: full });
+     }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+     if (replyAlive()) senderWin.webContents.send('pet:chat-message-done', { text: full });
+     // Fire-and-forget -- must not delay the reply the user is already
+     // looking at, and a failed extraction shouldn't surface as a chat error.
+diff --git a/src/preload.cjs b/src/preload.cjs
+index d68e507..285f16f 100644
+--- a/src/preload.cjs
++++ b/src/preload.cjs
+@@ -38,20 +38,21 @@ contextBridge.exposeInMainWorld('pet', {
+   onPomodoroDone: (fn) => ipcRenderer.on('pet:pomodoro-done', () => fn()),
+   onChatPanelReady: (fn) => ipcRenderer.on('pet:chat-panel-ready', (_e, d) => fn(d)),
+   onChatPanelClosed: (fn) => ipcRenderer.on('pet:chat-panel-closed', () => fn()),
+   onChatHistory: (fn) => ipcRenderer.on('pet:chat-history', (_e, d) => fn(d)),
+   onChatDelta: (fn) => ipcRenderer.on('pet:chat-delta', (_e, d) => fn(d)),
+   onChatMessageDone: (fn) => ipcRenderer.on('pet:chat-message-done', (_e, d) => fn(d)),
+   onChatError: (fn) => ipcRenderer.on('pet:chat-error', (_e, d) => fn(d)),
+   onChatReply: (fn) => ipcRenderer.on('pet:chat-reply', (_e, d) => fn(d)),
+   onChatSpeak: (fn) => ipcRenderer.on('pet:chat-speak-delta', (_e, d) => fn(d)),
+   onChatComplete: (fn) => ipcRenderer.on('pet:chat-complete', (_e, d) => fn(d)),
++  onChatEmotion: (fn) => ipcRenderer.on('pet:chat-emotion', (_e, d) => fn(d)),
+   onChatConvList: (fn) => ipcRenderer.on('pet:chat-conv-list', (_e, d) => fn(d)),
+   onTodos: (fn) => ipcRenderer.on('pet:todos', (_e, d) => fn(d)),
+   onTodoPanelReady: (fn) => ipcRenderer.on('pet:todo-panel-ready', (_e, d) => fn(d)),
+   onTodoPanelClosed: (fn) => ipcRenderer.on('pet:todo-panel-closed', () => fn()),
+   onReportResult: (fn) => ipcRenderer.on('pet:report-result', (_e, d) => fn(d)),
+   onTaskListResult: (fn) => ipcRenderer.on('pet:task-list-result', (_e, d) => fn(d)),
+   onToolbarReady: (fn) => ipcRenderer.on('pet:toolbar-ready', (_e, d) => fn(d)),
+   onToolbarClosed: (fn) => ipcRenderer.on('pet:toolbar-closed', () => fn()),
+   onToolbarState: (fn) => ipcRenderer.on('pet:toolbar-state', (_e, d) => fn(d)),
+   onSleepSettings: (fn) => ipcRenderer.on('pet:sleep-settings', (_e, d) => fn(d)),
+diff --git a/src/renderer.js b/src/renderer.js
+index 169401d..67c30e6 100644
+--- a/src/renderer.js
++++ b/src/renderer.js
+@@ -1386,20 +1386,63 @@ window.pet.onBeat(() => {
+     // system audio, logged), the notes were just invisible in well under
+     // one frame. This scale keeps total drift to a gentle ~40-70px.
+     vx: (Math.random() - 0.5) * 0.006 * dpr,
+     vy: -(0.028 + Math.random() * 0.018) * dpr,
+     char: NOTE_CHARS[Math.floor(Math.random() * NOTE_CHARS.length)],
+     bornMs: performance.now(),
+   });
+   if (noteParticles.length > 12) noteParticles.shift(); // safety cap regardless of lifetime
+ });
+ 
++// Chat-emotion emoji reaction: one emoji per chat reply, pops up above the
++// head with a small bounce then drifts up and fades -- same visual
++// language as the music-nod note particles above (drawNoteParticles) but a
++// single one-shot spawn instead of a continuous per-beat stream.
++const EMOJI_REACT_LIFE_MS = 1600;
++let emojiReactParticles = []; // { x, y, vy, char, bornMs }
++
++function spawnEmojiReaction(char) {
++  emojiReactParticles.push({
++    x: canvas.width * 0.5,
++    y: canvas.height * 0.12,
++    vy: -(0.02 + Math.random() * 0.01) * dpr,
++    char,
++    bornMs: performance.now(),
++  });
++  if (emojiReactParticles.length > 4) emojiReactParticles.shift();
++}
++
++function drawEmojiReactParticles(now) {
++  if (emojiReactParticles.length === 0) return;
++  emojiReactParticles = emojiReactParticles.filter((p) => now - p.bornMs < EMOJI_REACT_LIFE_MS);
++  g.save();
++  g.textAlign = 'center';
++  g.textBaseline = 'middle';
++  for (const p of emojiReactParticles) {
++    const age = now - p.bornMs;
++    const t = age / EMOJI_REACT_LIFE_MS;
++    // Bounce-in over the first 200ms (scale 0.3 -> 1.15 -> 1.0), hold, then fade over the last 30%.
++    let scale;
++    if (age < 200) {
++      const bt = age / 200;
++      scale = bt < 0.7 ? 0.3 + (1.15 - 0.3) * (bt / 0.7) : 1.15 - 0.15 * ((bt - 0.7) / 0.3);
++    } else {
++      scale = 1.0;
++    }
++    const alpha = t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3);
++    g.globalAlpha = alpha;
++    g.font = `${Math.round(22 * scale * dpr)}px "Segoe UI Emoji", "Microsoft YaHei", sans-serif`;
++    g.fillText(p.char, p.x, p.y + p.vy * age);
++  }
++  g.restore();
++}
++
+ window.pet.onMusicComment(({ text } = {}) => {
+   if (!text) return;
+   speechLine = text;
+   speak(speechLine, cfg.voice);
+   speechUntilMs = performance.now() + 7000;
+ });
+ 
+ // A task finished and you haven't looked at the Claude window yet (see
+ // main.js's pollClaudeStatus/startFocusWatch) -- a small persistent marker
+ // drawn directly on the canvas, not a bubble, since it needs to survive
+@@ -1432,20 +1475,31 @@ window.pet.onPomodoroDone(() => {
+ function playAnimationRow(row) {
+   const before = currentRect();
+   brain.forceState(STATES.PERFORM, { performRow: row });
+   animCol = 0;
+   animAcc = 0;
+   beginFade(before);
+ }
+ 
+ window.pet.onPlayRow(({ row }) => playAnimationRow(row));
+ 
++// Chat-reply emotion reaction: the model self-tags its tone (see chat.js's
++// EMOTION_TAG_INSTRUCTION), main.js parses/strips that tag and forwards
++// here. `row` may be undefined (emotion has no pose mapping yet for this
++// pet -- config.default.json's emotionRows is deliberately sparse and
++// meant to grow as more art gets made) -- still show the emoji even
++// without a pose in that case.
++window.pet.onChatEmotion(({ emotion, emoji, row } = {}) => {
++  if (typeof row === 'number') playAnimationRow(row);
++  if (emoji) spawnEmojiReaction(emoji);
++});
++
+ window.pet.onPlaySpin(() => {
+   const before = currentRect();
+   brain.forceState(STATES.SPIN);
+   animCol = 0;
+   animAcc = 0;
+   beginFade(before);
+ });
+ 
+ window.pet.onSwitch(async (pet) => {
+   const outgoing = sheet ? currentRect() : null;
+@@ -2456,20 +2510,21 @@ function render() {
+     drawRect(fade.rect, 1 - t, nodOffsetPx);
+     drawRect(rect, t, nodOffsetPx);
+     if (fade.kind === 'transform') drawFeatherBurst(fade.particles, t);
+   } else {
+     drawRect(rect, 1, nodOffsetPx);
+   }
+   drawAttentionLight();
+   drawTodoBadge();
+   drawContextRings(nowMs);
+   drawNoteParticles(nowMs);
++  drawEmojiReactParticles(nowMs);
+ 
+   updateBubbles();
+ }
+ 
+ let wasHit = null;
+ const RING_HOVER_MS = 500;
+ let ringHoverStartMs = null;
+ // Fires once per continuous hover, before the ring-opening threshold (a
+ // quick "hm?" as the cursor lands, distinct from the ring appearing) --
+ // resets the moment the cursor leaves so it can fire again next time.

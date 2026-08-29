@@ -1,0 +1,181 @@
+diff --git a/src/index.html b/src/index.html
+index 91331b8..642a350 100644
+--- a/src/index.html
++++ b/src/index.html
+@@ -317,20 +317,42 @@
+     border: 1px solid rgba(120, 24, 32, 0.45);
+     border-radius: 8px;
+     background: rgba(120, 24, 32, 0.1);
+     color: rgba(40, 16, 20, 0.9);
+     font-size: 12px;
+     padding: 6px 12px;
+     cursor: pointer;
+   }
+   #chatPanelSend:hover { background: rgba(120, 24, 32, 0.2); }
+   #chatPanelSend:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(120, 24, 32, 0.1); }
++  #chatVoiceInput {
++    background: transparent;
++    border: 1px solid rgba(100, 100, 100, 0.3);
++    border-radius: 4px;
++    padding: 4px 8px;
++    cursor: pointer;
++    font-size: 16px;
++    transition: all 0.2s;
++  }
++  #chatVoiceInput:hover {
++    background: rgba(100, 150, 255, 0.2);
++    border-color: rgba(100, 150, 255, 0.5);
++  }
++  #chatVoiceInput.listening {
++    background: rgba(255, 100, 100, 0.3);
++    border-color: rgba(255, 100, 100, 0.8);
++    animation: pulse 0.5s infinite;
++  }
++  @keyframes pulse {
++    0%, 100% { opacity: 1; }
++    50% { opacity: 0.6; }
++  }
+   #chatPanelScreenshot {
+     flex: 0 0 auto;
+     border: 1px solid rgba(120, 24, 32, 0.35);
+     border-radius: 8px;
+     background: rgba(255, 255, 255, 0.7);
+     font-size: 13px;
+     padding: 6px 8px;
+     cursor: pointer;
+     line-height: 1;
+   }
+@@ -713,21 +735,22 @@
+       <button id="chatPanelHist" title="历史对话" aria-label="历史对话">🕘</button>
+       <button id="chatPanelNew" title="新对话" aria-label="新对话">✚</button>
+       <button id="chatPanelClose" aria-label="关闭">✕</button>
+     </div>
+   </div>
+   <div id="chatMessages"></div>
+   <div id="chatConvList"></div>
+   <div id="chatScreenshotChip" style="display:none;">📷 已附上截图，问点什么吧 <button id="chatScreenshotChipClear" aria-label="移除截图">✕</button></div>
+   <div id="chatInputRow">
+     <button id="chatPanelScreenshot" title="截屏问他" aria-label="截屏问他">📸</button>
+-    <input id="chatPanelInput" type="text" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false">
++    <input id="chatPanelInput" type="text" placeholder="跟他说点什么… (F9 按键说话)" autocomplete="off" spellcheck="false">
++    <button id="chatVoiceInput" title="按住 F9 说话或点这个按钮">🎤</button>
+     <button id="chatPanelSend">发送</button>
+   </div>
+ </div>
+ <div id="todoPanel">
+   <div id="todoPanelHeader">
+     <div id="todoTabs">
+       <button class="todo-tab active" id="todoTabTodo" data-tab="todo">待办</button>
+       <button class="todo-tab" id="todoTabTasks" data-tab="tasks">任务</button>
+       <button class="todo-tab" id="todoTabReport" data-tab="report">报告</button>
+       <button class="todo-tab" id="todoTabHistory" data-tab="history">记录</button>
+diff --git a/src/renderer.js b/src/renderer.js
+index 4414e36..169401d 100644
+--- a/src/renderer.js
++++ b/src/renderer.js
+@@ -25,20 +25,21 @@ const chatMessagesEl = document.getElementById('chatMessages');
+ const chatPanelInputEl = document.getElementById('chatPanelInput');
+ const chatPanelSendEl = document.getElementById('chatPanelSend');
+ const chatPanelScreenshotEl = document.getElementById('chatPanelScreenshot');
+ const chatScreenshotChipEl = document.getElementById('chatScreenshotChip');
+ const chatScreenshotChipClearEl = document.getElementById('chatScreenshotChipClear');
+ const chatPanelCloseEl = document.getElementById('chatPanelClose');
+ const chatPanelHistEl = document.getElementById('chatPanelHist');
+ const chatPanelNewEl = document.getElementById('chatPanelNew');
+ const chatConvListEl = document.getElementById('chatConvList');
+ const chatInputRowEl = document.getElementById('chatInputRow');
++const chatVoiceInputEl = document.getElementById('chatVoiceInput');
+ const todoPanelEl = document.getElementById('todoPanel');
+ const todoPanelCloseEl = document.getElementById('todoPanelClose');
+ const todoTabTodoEl = document.getElementById('todoTabTodo');
+ const todoTabTasksEl = document.getElementById('todoTabTasks');
+ const todoTabReportEl = document.getElementById('todoTabReport');
+ const todoAddInputEl = document.getElementById('todoAddInput');
+ const todoAddBtnEl = document.getElementById('todoAddBtn');
+ const todoListEl = document.getElementById('todoList');
+ const tasksListEl = document.getElementById('tasksList');
+ const reportBodyEl = document.getElementById('reportBody');
+@@ -1259,42 +1260,77 @@ window.pet.onScreenTip((tip) => {
+   const untilMs = performance.now() + (screenTipsCfg.displayMs ?? 9000);
+   if (tipDisplayStacked) {
+     screenTipQueue.push({ text: tip.text, untilMs });
+     if (screenTipQueue.length > STACKED_TIP_MAX) screenTipQueue.shift();
+   } else {
+     screenTipText = tip.text;
+     screenTipUntilMs = untilMs;
+   }
+ });
+ 
++// Voice input button handlers (🎤 button in chat panel)
++let voiceInputActive = false;
++
++if (chatVoiceInputEl) {
++  chatVoiceInputEl.addEventListener('mousedown', () => {
++    if (!cfg.voice?.enabled) return;
++    voiceInputActive = true;
++    chatVoiceInputEl.classList.add('listening');
++    window.pet.voicePptStart();
++  });
++
++  chatVoiceInputEl.addEventListener('mouseup', () => {
++    voiceInputActive = false;
++    chatVoiceInputEl.classList.remove('listening');
++    window.pet.voicePptStop();
++  });
++}
++
+ // Voice STT: push-to-talk key binding. F9 by default, configurable.
+ // On keydown, send START to the STT helper; on keyup, send STOP.
+-// Recognized transcripts are routed through the exact same
+-// window.pet.chatSend() path as typed input.
++// Show listening state on the voice button when in chat panel.
+ window.addEventListener('keydown', (e) => {
+   const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
+   if (e.key === pttKey && cfg.voice?.enabled && !e.repeat) {
++    if (chatPanelOpen && chatVoiceInputEl) {
++      voiceInputActive = true;
++      chatVoiceInputEl.classList.add('listening');
++    }
+     window.pet.voicePptStart();
+   }
+ });
++
+ window.addEventListener('keyup', (e) => {
+   const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
+   if (e.key === pttKey && cfg.voice?.enabled) {
++    if (chatVoiceInputEl) {
++      voiceInputActive = false;
++      chatVoiceInputEl.classList.remove('listening');
++    }
+     window.pet.voicePptStop();
+   }
+ });
+ 
+-// Voice transcript callback: treated identically to a typed message sent
+-// via Enter press. Routes through window.pet.chatSend() so it hits all
+-// the same downstream chat logic, history, bubble display, etc.
++// Voice transcript callback: when chat panel is open, append transcript to input
++// field; otherwise send as a regular chat message like before.
+ window.pet.onVoiceTranscript((text) => {
+-  if (text) window.pet.chatSend(text);
++  if (text) {
++    if (chatPanelOpen && chatPanelInputEl) {
++      // Append to existing input or replace if empty
++      const current = chatPanelInputEl.value.trim();
++      chatPanelInputEl.value = current ? current + ' ' + text : text;
++      chatPanelInputEl.focus();
++    } else {
++      // Chat panel not open, send as regular message
++      window.pet.chatSend(text);
++    }
++  }
+ });
+ 
+ window.pet.onVoiceCallModeState(({ active }) => {
+   if (cfg.debug) console.log('[voice] call-mode', active ? 'active' : 'inactive');
+ });
+ 
+ // Camera-sense: main process asks (over IPC) for one webcam frame at a
+ // time; only the renderer has getUserMedia. Stream is opened just long
+ // enough to grab a single frame, then immediately stopped -- never left
+ // running between captures.

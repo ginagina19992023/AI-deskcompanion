@@ -1,0 +1,152 @@
+diff --git a/src/main.js b/src/main.js
+index 1df6cca..5eb5d34 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -3180,23 +3180,33 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
+   const basePrompt = pet.chatSystemPrompt ?? cfg.chat?.systemPrompt;
+   const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : visionCfg.systemPrompt };
+   // Recent text history for continuity, then this turn WITH the image
+   // attached -- only the current message carries pixels, older turns stay
+   // text-only (Ollama attaches images per-message, not per-conversation).
+   const context = conv.messages
+     .slice(-CHAT_CONTEXT_MESSAGES, -1)
+     .map(({ role, content }) => ({ role, content }));
+   context.push({ role: 'user', content: userText, images: [imageBase64] });
+   try {
++    // Check if voice mode is enabled to pass voice config for TTS
++    const voiceConfig = cfg.chat?.voiceMode ? cfg.voice : null;
+     const full = await streamChatReply(effectiveCfg, context, (delta) => {
+       if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
++      // If voice mode enabled, send delta for TTS processing
++      if (voiceConfig && alive()) {
++        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      }
+     });
++    // Signal completion for any remaining buffered speech
++    if (voiceConfig && alive()) {
++      win.webContents.send('pet:chat-complete', { text: full });
++    }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+     if (alive()) win.webContents.send('pet:chat-message-done', { text: full });
+     // Same shared history the ambient screen tips use, so this is browsable
+     // from the 记录 page too -- the pet's actual reply (real analysis of
+     // the real image) is what gets saved as the entry text, not a generic
+     // caption, since that's the most informative thing this exchange
+     // produced. source lets the history/report views tell these apart from
+     // ambient/work-supervision entries.
+@@ -3764,23 +3774,33 @@ ipcMain.on('pet:chat-send', async (_e, text) => {
+   const conv = curConv();
+   conv.messages.push({ role: 'user', content: userText, ts: Date.now() });
+   if (conv.title === '新对话') conv.title = userText.slice(0, 18);
+   conv.updatedAt = Date.now();
+   saveChatConvs();
+   const pet = activePet();
+   const basePrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
+   const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : chatCfg.systemPrompt };
+   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
+   try {
++    // Check if voice mode is enabled to pass voice config for TTS
++    const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
+     const full = await streamChatReply(effectiveCfg, context, (delta) => {
+       if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
++      // If voice mode enabled, send delta for TTS processing
++      if (voiceConfig && alive()) {
++        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
++      }
+     });
++    // Signal completion for any remaining buffered speech
++    if (voiceConfig && alive()) {
++      win.webContents.send('pet:chat-complete', { text: full });
++    }
+     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
+     conv.updatedAt = Date.now();
+     saveChatConvs();
+     if (alive()) win.webContents.send('pet:chat-message-done', { text: full });
+     // Fire-and-forget -- must not delay the reply the user is already
+     // looking at, and a failed extraction shouldn't surface as a chat error.
+     extractMemoryFacts(userText, full, chatCfg);
+   } catch (err) {
+     if (cfg.debug) console.error('[chat]', err.message);
+     if (alive()) win.webContents.send('pet:chat-error', { message: err.message });
+diff --git a/src/preload.cjs b/src/preload.cjs
+index 0566eef..d68e507 100644
+--- a/src/preload.cjs
++++ b/src/preload.cjs
+@@ -36,20 +36,22 @@ contextBridge.exposeInMainWorld('pet', {
+   onUnseenCompletion: (fn) => ipcRenderer.on('pet:unseen-completion', (_e, d) => fn(d)),
+   onPomodoroState: (fn) => ipcRenderer.on('pet:pomodoro-state', (_e, d) => fn(d)),
+   onPomodoroDone: (fn) => ipcRenderer.on('pet:pomodoro-done', () => fn()),
+   onChatPanelReady: (fn) => ipcRenderer.on('pet:chat-panel-ready', (_e, d) => fn(d)),
+   onChatPanelClosed: (fn) => ipcRenderer.on('pet:chat-panel-closed', () => fn()),
+   onChatHistory: (fn) => ipcRenderer.on('pet:chat-history', (_e, d) => fn(d)),
+   onChatDelta: (fn) => ipcRenderer.on('pet:chat-delta', (_e, d) => fn(d)),
+   onChatMessageDone: (fn) => ipcRenderer.on('pet:chat-message-done', (_e, d) => fn(d)),
+   onChatError: (fn) => ipcRenderer.on('pet:chat-error', (_e, d) => fn(d)),
+   onChatReply: (fn) => ipcRenderer.on('pet:chat-reply', (_e, d) => fn(d)),
++  onChatSpeak: (fn) => ipcRenderer.on('pet:chat-speak-delta', (_e, d) => fn(d)),
++  onChatComplete: (fn) => ipcRenderer.on('pet:chat-complete', (_e, d) => fn(d)),
+   onChatConvList: (fn) => ipcRenderer.on('pet:chat-conv-list', (_e, d) => fn(d)),
+   onTodos: (fn) => ipcRenderer.on('pet:todos', (_e, d) => fn(d)),
+   onTodoPanelReady: (fn) => ipcRenderer.on('pet:todo-panel-ready', (_e, d) => fn(d)),
+   onTodoPanelClosed: (fn) => ipcRenderer.on('pet:todo-panel-closed', () => fn()),
+   onReportResult: (fn) => ipcRenderer.on('pet:report-result', (_e, d) => fn(d)),
+   onTaskListResult: (fn) => ipcRenderer.on('pet:task-list-result', (_e, d) => fn(d)),
+   onToolbarReady: (fn) => ipcRenderer.on('pet:toolbar-ready', (_e, d) => fn(d)),
+   onToolbarClosed: (fn) => ipcRenderer.on('pet:toolbar-closed', () => fn()),
+   onToolbarState: (fn) => ipcRenderer.on('pet:toolbar-state', (_e, d) => fn(d)),
+   onSleepSettings: (fn) => ipcRenderer.on('pet:sleep-settings', (_e, d) => fn(d)),
+diff --git a/src/renderer.js b/src/renderer.js
+index 177b065..4414e36 100644
+--- a/src/renderer.js
++++ b/src/renderer.js
+@@ -405,20 +405,48 @@ window.pet.onChatPanelClosed(() => {
+ });
+ 
+ window.pet.onChatHistory(({ messages }) => {
+   chatMessagesEl.replaceChildren();
+   for (const m of messages ?? []) appendChatMessage(m.role, m.content);
+   pendingBubbleEl = null;
+ });
+ 
+ window.pet.onChatConvList(({ convs }) => renderConvList(convs));
+ 
++// Handle chat voice output: accumulate text deltas and speak when we hit sentence-ending punctuation
++let chatSpeechBuffer = '';
++let currentVoiceConfig = null;
++
++window.pet.onChatSpeak(({ delta, voiceConfig }) => {
++  // Store voice config for use in completion handler
++  currentVoiceConfig = voiceConfig;
++
++  // Accumulate text
++  if (!chatSpeechBuffer) chatSpeechBuffer = '';
++  chatSpeechBuffer += delta;
++
++  // Speak when we hit Chinese sentence-ending punctuation
++  if (/[。！？\n]$/.test(chatSpeechBuffer)) {
++    speak(chatSpeechBuffer, voiceConfig);
++    chatSpeechBuffer = '';
++  }
++});
++
++window.pet.onChatComplete(() => {
++  // Speak any remaining buffered text when chat completes
++  if (chatSpeechBuffer && currentVoiceConfig) {
++    speak(chatSpeechBuffer, currentVoiceConfig);
++  }
++  chatSpeechBuffer = '';
++  currentVoiceConfig = null;
++});
++
+ // Sending a second message while the first is still streaming used to
+ // silently reassign pendingBubbleEl to the new placeholder, losing the
+ // reference to the first one -- confirmed live: three messages sent in a
+ // row while the model (slow, ~40-70s/reply on this hardware) was still
+ // working produced replies that landed on the wrong bubble or never
+ // visibly resolved at all. Blocking send while one is in flight prevents
+ // the whole class of interleaving bugs, not just this specific report.
+ let chatSendPending = false;
+ 
+ function setChatSendPending(pending) {

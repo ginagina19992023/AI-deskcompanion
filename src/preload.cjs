@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('pet', {
   askAboutEntry: (text) => ipcRenderer.send('pet:ask-about-entry', text),
   captureScreenshot: () => ipcRenderer.invoke('pet:capture-screenshot'),
   chatSendWithImage: (text, imageBase64) => ipcRenderer.send('pet:chat-send-with-image', { text, imageBase64 }),
+  synthesizeSpeech: (text) => ipcRenderer.invoke('pet:synthesize-speech', text),
   fatal: (msg) => ipcRenderer.send('pet:fatal', msg),
   permissionResponse: (requestId, decision) => ipcRenderer.send('pet:permission-response', { requestId, decision }),
 });

@@ -1131,6 +1131,11 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       cfg.voice = cfg.voice ?? {};
       cfg.voice.pushToTalkKey = value;
       break;
+    case 'voiceTtsEngine':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.ttsEngine = value;
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
+      break;
     case 'voiceCpuMode':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.cpuMode = !!value;
@@ -2219,6 +2224,10 @@ function dashboardSnapshot() {
       voicePitch: cfg.voice?.pitch ?? 1.0,
       voiceVoiceName: cfg.voice?.voiceName ?? '',
       voiceSttEngine: cfg.voice?.sttEngine ?? 'sapi',
+      voiceTtsEngine: cfg.voice?.ttsEngine ?? 'sapi',
+      voiceTtsEngineAvailable: {
+        piper: !!cfg.voice?.piper?.modelPath,
+      },
       voiceCpuMode: !!cfg.voice?.cpuMode,
       voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'Alt+G',
       chatEnabled: !!cfg.chat?.enabled,

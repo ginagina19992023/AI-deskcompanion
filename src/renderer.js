@@ -1629,33 +1629,31 @@ window.pet.onSwitch(async (pet) => {
   if (outgoing) beginFade(outgoing);
 });
 
-// A right-click still opens the native menu by default -- but if a second
-// right-click follows within DOUBLE_RIGHT_CLICK_MS, that's read as "double
-// right-click" and opens the fan toolbar ring instead. The first click's
-// menu popup has to be *delayed*, not shown immediately then closed, or a
-// fast second right-click would just be clicking into an already-open
-// native menu instead of reaching this detector at all -- the real
-// trade-off is every single right-click now waits this long before the
-// menu actually appears.
+// A single right-click opens the native menu; two right-clicks in a row
+// open the fan toolbar ring instead -- never both. The menu popup has to be
+// *delayed*, not shown immediately, so a fast second right-click has
+// something to cancel rather than landing on an already-open native menu.
+//
+// The timer resets on every click rather than measuring elapsed time from
+// the *first* click: a right-click double is slower and less practiced than
+// a left-click double, so the gap between the two clicks can easily exceed
+// a short fixed window measured from click one -- which would let the
+// first click's menu fire before the second click even arrives, and then
+// treat that second click as a new single click that goes on to open the
+// toolbar too (both firing). Resetting per click means the decision is
+// only ever made once, after clicking actually stops.
 const DOUBLE_RIGHT_CLICK_MS = 400;
-let lastContextMenuAt = 0;
-let contextMenuTimer = null;
+let rightClickCount = 0;
+let rightClickTimer = null;
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  const now = performance.now();
-  if (now - lastContextMenuAt < DOUBLE_RIGHT_CLICK_MS) {
-    if (contextMenuTimer) {
-      clearTimeout(contextMenuTimer);
-      contextMenuTimer = null;
-    }
-    lastContextMenuAt = 0; // consumed -- a third rapid click starts a fresh pair, not part of this one
-    window.pet.openToolbar();
-    return;
-  }
-  lastContextMenuAt = now;
-  contextMenuTimer = setTimeout(() => {
-    contextMenuTimer = null;
-    window.pet.contextMenu();
+  rightClickCount++;
+  if (rightClickTimer) clearTimeout(rightClickTimer);
+  rightClickTimer = setTimeout(() => {
+    if (rightClickCount >= 2) window.pet.openToolbar();
+    else window.pet.contextMenu();
+    rightClickCount = 0;
+    rightClickTimer = null;
   }, DOUBLE_RIGHT_CLICK_MS);
 });
 
@@ -2641,11 +2639,10 @@ function render() {
 }
 
 let wasHit = null;
-const RING_HOVER_MS = 500;
-let ringHoverStartMs = null;
-// Fires once per continuous hover, before the ring-opening threshold (a
-// quick "hm?" as the cursor lands, distinct from the ring appearing) --
-// resets the moment the cursor leaves so it can fire again next time.
+// A quick "hm?" as the cursor lands on the sprite -- resets the moment the
+// cursor leaves so it can fire again next time. The toolbar ring itself no
+// longer opens from hover (see the double-right-click detector on the
+// canvas's 'contextmenu' listener) -- only this reaction remains here.
 const HOVER_REACT_MS = 350;
 let hoverStartMs = null;
 let hoverReacted = false;
@@ -2690,28 +2687,21 @@ function reportHit() {
     window.pet.setInteractive(hit);
   }
 
-  // Sustained hover (not a drag, not while any panel is already open) opens
-  // the toolbar ring. Any gap in hovering resets the timer -- deliberately
-  // a "linger" gesture, not a quick pass-through. The context-usage badge
-  // sits directly on top of the sprite's own opaque pixels in the corner,
-  // so `hit` (sprite-alpha test) is true there too -- without excluding it,
-  // hovering the badge to read usage also silently starts the ring-open
-  // timer underneath, popping the toolbar mid-hover. The ring is a
-  // sprite-body-only gesture; the badge has its own dedicated hover (the
-  // usage card).
+  // Sustained hover (not a drag, not while any panel is already open)
+  // triggers the "hover" gesture reaction. Any gap in hovering resets the
+  // timer -- deliberately a "linger" gesture, not a quick pass-through. The
+  // context-usage badge sits directly on top of the sprite's own opaque
+  // pixels in the corner, so `hit` (sprite-alpha test) is true there too --
+  // without excluding it, hovering the badge to read usage would also
+  // trigger this reaction. The badge has its own dedicated hover (the usage
+  // card).
   if (hit && !contextBadgeHovered && permissionQueue.length === 0 && !chatPanelOpen && !todoPanelOpen && !toolbarOpen && brain.state !== STATES.DRAG) {
-    if (ringHoverStartMs === null) ringHoverStartMs = performance.now();
-    else if (performance.now() - ringHoverStartMs >= RING_HOVER_MS) {
-      ringHoverStartMs = null;
-      window.pet.openToolbar();
-    }
     if (hoverStartMs === null) hoverStartMs = performance.now();
     else if (!hoverReacted && performance.now() - hoverStartMs >= HOVER_REACT_MS) {
       hoverReacted = true;
       triggerGesture('hover');
     }
   } else {
-    ringHoverStartMs = null;
     hoverStartMs = null;
     hoverReacted = false;
   }

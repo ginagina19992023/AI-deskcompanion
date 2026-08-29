@@ -725,6 +725,17 @@
       </div>
       <p class="hint" id="voiceVoiceNameHint" style="display: none;">列表来自本机 Windows 系统自带的语音包；系统默认经常是女声，想要男声角色配男声，从这里选一个名字含"男"或 Male 的试听效果</p>
 
+      <div class="field-row" id="voiceSettingsGroupTts" style="display: none;">
+        <label for="voiceTtsEngineSelect">朗读引擎</label>
+        <select id="voiceTtsEngineSelect" style="flex:1; max-width:280px;">
+          <option value="sapi">Windows 自带（SAPI，零配置，音质一般）</option>
+          <option value="piper">Piper（本地神经语音，音质好，需先配置模型）</option>
+          <option value="edge-cloud">Edge 云端语音（音质最好，需要联网）</option>
+        </select>
+      </div>
+      <p class="hint" id="voiceTtsEngineHint" style="display: none;">选了会优先用这个引擎；失败会自动降级——Edge 联网失败退回 Piper（如果配置了），Piper 没配置模型或出错退回 SAPI，不会卡住不出声。Piper 需要先运行 tools/piper/setup-piper.ps1 下载模型。</p>
+      <p class="hint" id="voiceTtsEnginePiperWarning" style="display: none; color: #c4304a;">⚠ 还没检测到 Piper 语音模型，选它会自动退回 SAPI，先运行 tools/piper/setup-piper.ps1 下载模型</p>
+
       <div class="field-row" id="voiceSettingsGroup6" style="display: none;">
         <label for="voiceSttEngineSelect">语音识别引擎</label>
         <select id="voiceSttEngineSelect" style="flex:1; max-width:280px;">

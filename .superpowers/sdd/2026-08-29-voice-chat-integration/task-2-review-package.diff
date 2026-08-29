@@ -1,0 +1,56 @@
+diff --git a/src/main.js b/src/main.js
+index b820e99..1df6cca 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -1112,20 +1112,28 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
+       break;
+     case 'chatEnabled':
+       // Same gap as screenTipsEnabled above -- "跟他聊天" only appeared in
+       // the right-click menu when chat was already on, no way back in
+       // once off. No watcher to start/stop here (chat is request-driven,
+       // not a timer), just the flag pet:chat-send already checks.
+       cfg.chat = cfg.chat ?? {};
+       cfg.chat.enabled = !!value;
+       buildTrayMenu();
+       break;
++    case 'chatVoiceMode':
++      cfg.chat = cfg.chat ?? {};
++      cfg.chat.voiceMode = !!value;
++      break;
++    case 'chatOllamaUrl':
++      cfg.chat = cfg.chat ?? {};
++      cfg.chat.ollamaUrl = value;
++      break;
+     case 'musicNodEnabled':
+       // The ring toggle and right-click checkbox both flip the *runtime*
+       // musicNodEnabled variable already; this is what makes that choice
+       // survive a restart instead of always reverting to config.json's
+       // stale default. See performToggle/the tray menu's own click
+       // handlers for the runtime half of this.
+       cfg.musicNod = cfg.musicNod ?? {};
+       cfg.musicNod.enabled = !!value;
+       break;
+     case 'pomodoroDurationMin':
+@@ -1918,20 +1926,22 @@ function dashboardSnapshot() {
+     settings: {
+       screenTipsModel: cfg.screenTips?.model ?? '',
+       screenTipsProvider: cfg.screenTips?.provider ?? 'ollama',
+       screenTipsBaseUrl: cfg.screenTips?.baseUrl ?? '',
+       screenTipsApiKeyEnv: cfg.screenTips?.apiKeyEnv ?? '',
+       screenTipsPaused,
+       chatModel: cfg.chat?.model ?? '',
+       chatProvider: cfg.chat?.provider ?? 'ollama',
+       chatBaseUrl: cfg.chat?.baseUrl ?? '',
+       chatApiKeyEnv: cfg.chat?.apiKeyEnv ?? '',
++      chatVoiceMode: !!cfg.chat?.voiceMode,
++      chatOllamaUrl: cfg.chat?.ollamaUrl ?? 'http://localhost:11434',
+       workSupervisionEnabled: !!cfg.workSupervision?.enabled,
+       workSupervisionIntervalMs: cfg.workSupervision?.intervalMs ?? 180000,
+       sleepEnabled: !!cfg.sleepSchedule?.enabled,
+       sleepStartHour: cfg.sleepSchedule?.startHour ?? 1,
+       sleepEndHour: cfg.sleepSchedule?.endHour ?? 6,
+       dailySummaryEnabled: !!cfg.dailySummary?.enabled,
+       dailySummaryIntervalMs: cfg.dailySummary?.intervalMs ?? 21600000,
+       statusLightsEnabled: cfg.statusLights?.enabled ?? true,
+       contextRingEnabled: cfg.claudeStatus?.contextRingEnabled ?? true,
+       dashboardPanelAlpha: cfg.dashboard?.panelAlpha ?? 0.92,

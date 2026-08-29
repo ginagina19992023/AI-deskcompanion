@@ -1,0 +1,244 @@
+diff --git a/src/dashboard-renderer.js b/src/dashboard-renderer.js
+index 9fcc1b4..7ab3723 100644
+--- a/src/dashboard-renderer.js
++++ b/src/dashboard-renderer.js
+@@ -413,20 +413,100 @@ dashScreenTipsEnabledEl.addEventListener('change', () => window.dash.setSetting(
+ dashScreenTipsAutoIntervalEl.addEventListener('change', () => window.dash.setSetting('screenTipsIntervalMs', Number(dashScreenTipsAutoIntervalEl.value)));
+ dashCameraSenseEnabledEl.addEventListener('change', () => window.dash.setSetting('cameraSenseEnabled', dashCameraSenseEnabledEl.checked));
+ dashCameraSenseIntervalEl.addEventListener('change', () => window.dash.setSetting('cameraSenseIntervalMs', Number(dashCameraSenseIntervalEl.value)));
+ dashChatEnabledEl.addEventListener('change', () => window.dash.setSetting('chatEnabled', dashChatEnabledEl.checked));
+ dashMusicNodEnabledEl.addEventListener('change', () => window.dash.setSetting('musicNodEnabled', dashMusicNodEnabledEl.checked));
+ dashPomodoroDurationEl.addEventListener('change', () => window.dash.setSetting('pomodoroDurationMin', Number(dashPomodoroDurationEl.value)));
+ dashCompanionEnabledEl.addEventListener('change', () => window.dash.setSetting('companionEnabled', dashCompanionEnabledEl.checked));
+ dashTipDisplayStackedEl.addEventListener('change', () => window.dash.setSetting('tipDisplayStacked', dashTipDisplayStackedEl.checked));
+ dashSoundsEnabledEl.addEventListener('change', () => window.dash.setSetting('soundsEnabled', dashSoundsEnabledEl.checked));
+ 
++// Voice settings handlers
++const voiceEnabledEl = document.getElementById('voiceEnabled');
++const voiceVolumeEl = document.getElementById('voiceVolume');
++const voiceRateEl = document.getElementById('voiceRate');
++const voicePitchEl = document.getElementById('voicePitch');
++const voicePushToTalkKeyEl = document.getElementById('voicePushToTalkKey');
++const voiceSettingsGroups = [
++  document.getElementById('voiceSettingsGroup'),
++  document.getElementById('voiceSettingsGroup2'),
++  document.getElementById('voiceSettingsGroup3'),
++  document.getElementById('voiceSettingsGroup4'),
++];
++
++voiceEnabledEl.addEventListener('change', (e) => {
++  window.dash.setSetting('voiceEnabled', e.target.checked);
++  for (const group of voiceSettingsGroups) {
++    group.style.display = e.target.checked ? 'block' : 'none';
++  }
++});
++
++voiceVolumeEl.addEventListener('input', (e) => {
++  window.dash.setSetting('voiceVolume', parseFloat(e.target.value));
++  document.getElementById('voiceVolumeValue').textContent = parseFloat(e.target.value).toFixed(1);
++});
++
++voiceRateEl.addEventListener('input', (e) => {
++  window.dash.setSetting('voiceRate', parseFloat(e.target.value));
++  document.getElementById('voiceRateValue').textContent = parseFloat(e.target.value).toFixed(1);
++});
++
++voicePitchEl.addEventListener('input', (e) => {
++  window.dash.setSetting('voicePitch', parseFloat(e.target.value));
++  document.getElementById('voicePitchValue').textContent = parseFloat(e.target.value).toFixed(1);
++});
++
++voicePushToTalkKeyEl.addEventListener('change', (e) => {
++  window.dash.setSetting('voicePushToTalkKey', e.target.value || 'F9');
++});
++
++// Chat settings handlers
++const chatEnabledEl = document.getElementById('chatEnabled');
++const chatVoiceModeEl = document.getElementById('chatVoiceMode');
++const chatProviderEl = document.getElementById('chatProvider');
++const chatOllamaUrlEl = document.getElementById('chatOllamaUrl');
++const chatModelEl = document.getElementById('chatModel');
++const chatSettingsGroups = [
++  document.getElementById('chatSettingsGroup'),
++  document.getElementById('chatSettingsGroup2'),
++];
++const chatOllamaGroup = document.getElementById('chatOllamaGroup');
++const chatModelGroup = document.getElementById('chatModelGroup');
++const chatVoiceModeHint = document.getElementById('chatVoiceModeHint');
++
++chatEnabledEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatEnabled', e.target.checked);
++  for (const group of chatSettingsGroups) {
++    group.style.display = e.target.checked ? 'block' : 'none';
++  }
++  chatVoiceModeHint.style.display = e.target.checked ? 'block' : 'none';
++  chatOllamaGroup.style.display = e.target.checked && chatProviderEl.value === 'ollama' ? 'block' : 'none';
++  chatModelGroup.style.display = e.target.checked ? 'block' : 'none';
++});
++
++chatVoiceModeEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatVoiceMode', e.target.checked);
++});
++
++chatProviderEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatProvider', e.target.value);
++  chatOllamaGroup.style.display = e.target.value === 'ollama' ? 'block' : 'none';
++});
++
++chatOllamaUrlEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatOllamaUrl', e.target.value);
++});
++
++chatModelEl.addEventListener('change', (e) => {
++  window.dash.setSetting('chatModel', e.target.value);
++});
++
+ function renderSettings(settings) {
+   dashScreenTipModelEl.value = settings.screenTipsModel ?? '';
+   dashScreenTipProviderEl.value = settings.screenTipsProvider ?? 'ollama';
+   dashScreenTipBaseUrlEl.value = settings.screenTipsBaseUrl ?? '';
+   dashScreenTipApiKeyEnvEl.value = settings.screenTipsApiKeyEnv ?? '';
+   dashChatModelEl.value = settings.chatModel ?? '';
+   dashChatProviderEl.value = settings.chatProvider ?? 'ollama';
+   dashChatBaseUrlEl.value = settings.chatBaseUrl ?? '';
+   dashChatApiKeyEnvEl.value = settings.chatApiKeyEnv ?? '';
+   updateCloudRowVisibility();
+@@ -452,20 +532,46 @@ function renderSettings(settings) {
+   dashScreenTipsAutoIntervalEl.value = String(settings.screenTipsIntervalMs ?? 180000);
+   dashCameraSenseEnabledEl.checked = !!settings.cameraSenseEnabled;
+   dashCameraSenseIntervalEl.value = String(settings.cameraSenseIntervalMs ?? 120000);
+   dashChatEnabledEl.checked = !!settings.chatEnabled;
+   dashMusicNodEnabledEl.checked = !!settings.musicNodEnabled;
+   dashPomodoroDurationEl.value = String(settings.pomodoroDurationMin ?? 25);
+   dashCompanionEnabledEl.checked = !!settings.companionEnabled;
+   dashTipDisplayStackedEl.checked = !!settings.tipDisplayStacked;
+   dashSoundsEnabledEl.checked = !!settings.soundsEnabled;
+   renderSoundFileNames(settings.soundFileNames);
++
++  // Populate voice settings
++  voiceEnabledEl.checked = !!settings.voiceEnabled;
++  voiceVolumeEl.value = settings.voiceVolume ?? 1.0;
++  document.getElementById('voiceVolumeValue').textContent = (settings.voiceVolume ?? 1.0).toFixed(1);
++  voiceRateEl.value = settings.voiceRate ?? 1.0;
++  document.getElementById('voiceRateValue').textContent = (settings.voiceRate ?? 1.0).toFixed(1);
++  voicePitchEl.value = settings.voicePitch ?? 1.0;
++  document.getElementById('voicePitchValue').textContent = (settings.voicePitch ?? 1.0).toFixed(1);
++  voicePushToTalkKeyEl.value = settings.voicePushToTalkKey ?? 'F9';
++  for (const group of voiceSettingsGroups) {
++    group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
++  }
++
++  // Populate chat settings
++  chatEnabledEl.checked = !!settings.chatEnabled;
++  chatVoiceModeEl.checked = !!settings.chatVoiceMode;
++  chatProviderEl.value = settings.chatProvider ?? 'ollama';
++  chatOllamaUrlEl.value = settings.chatOllamaUrl ?? 'http://localhost:11434';
++  chatModelEl.value = settings.chatModel ?? 'gemma4:12b';
++  for (const group of chatSettingsGroups) {
++    group.style.display = !!settings.chatEnabled ? 'block' : 'none';
++  }
++  chatVoiceModeHint.style.display = !!settings.chatEnabled ? 'block' : 'none';
++  chatOllamaGroup.style.display = !!settings.chatEnabled && (settings.chatProvider ?? 'ollama') === 'ollama' ? 'block' : 'none';
++  chatModelGroup.style.display = !!settings.chatEnabled ? 'block' : 'none';
+ }
+ 
+ window.dash.getModels().then(({ models }) => populateModelDatalist(models));
+ 
+ // --- todos -------------------------------------------------------------
+ const dashTodoListEl = document.getElementById('dashTodoList');
+ const dashTodoInputEl = document.getElementById('dashTodoInput');
+ const dashTodoAddBtnEl = document.getElementById('dashTodoAddBtn');
+ 
+ function renderTodos(todos) {
+diff --git a/src/dashboard.html b/src/dashboard.html
+index e375d19..f885577 100644
+--- a/src/dashboard.html
++++ b/src/dashboard.html
+@@ -559,20 +559,87 @@
+         <button class="btn" id="soundFileAlertPick">选择文件</button>
+         <button class="btn" id="soundFileAlertClear">清除</button>
+       </div>
+       <div class="sound-file-row">
+         <span class="sound-file-label">摸它 / 手势</span>
+         <span class="sound-file-current" id="soundFilePetName">（内置音效）</span>
+         <button class="btn" id="soundFilePetPick">选择文件</button>
+         <button class="btn" id="soundFilePetClear">清除</button>
+       </div>
+     </div>
++    <div class="panel-block">
++      <h3>🎤 语音设置</h3>
++
++      <div class="field-row">
++        <label for="voiceEnabled">启用语音输出与输入</label>
++        <input type="checkbox" id="voiceEnabled">
++      </div>
++      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
++
++      <div class="field-row" id="voiceSettingsGroup" style="display: none;">
++        <label for="voiceVolume">语音输出音量</label>
++        <input type="range" id="voiceVolume" min="0" max="1" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voiceVolumeValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup2" style="display: none;">
++        <label for="voiceRate">语速</label>
++        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voiceRateValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup3" style="display: none;">
++        <label for="voicePitch">音高</label>
++        <input type="range" id="voicePitch" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
++        <span id="voicePitchValue" class="hint" style="margin:0;"></span>
++      </div>
++
++      <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
++        <label for="voicePushToTalkKey">推送通话快捷键</label>
++        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
++      </div>
++    </div>
++
++    <div class="panel-block">
++      <h3>💬 聊天设置</h3>
++
++      <div class="field-row">
++        <label for="chatEnabled">启用聊天</label>
++        <input type="checkbox" id="chatEnabled">
++      </div>
++      <p class="hint">用 Alt+A 快捷键或点工具栏打开聊天窗口</p>
++
++      <div class="field-row" id="chatSettingsGroup" style="display: none;">
++        <label for="chatVoiceMode">聊天时启用语音回复</label>
++        <input type="checkbox" id="chatVoiceMode">
++      </div>
++      <p class="hint" id="chatVoiceModeHint" style="display: none;">宠物会用语音读出聊天回复</p>
++
++      <div class="field-row" id="chatSettingsGroup2" style="display: none;">
++        <label for="chatProvider">聊天模型提供商</label>
++        <select id="chatProvider">
++          <option value="ollama">Ollama (本地)</option>
++          <option value="openai-compatible">OpenAI 兼容服务</option>
++        </select>
++      </div>
++
++      <div class="field-row" id="chatOllamaGroup" style="display: none;">
++        <label for="chatOllamaUrl">Ollama 地址</label>
++        <input type="text" id="chatOllamaUrl" placeholder="http://localhost:11434" style="flex:1; min-width:200px;">
++      </div>
++
++      <div class="field-row" id="chatModelGroup" style="display: none;">
++        <label for="chatModel">模型名称</label>
++        <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
++      </div>
++    </div>
++
+     <div class="panel-block">
+       <h3>聊天</h3>
+       <div class="field-row">
+         <label for="dashChatEnabled">跟他聊天功能</label>
+         <input type="checkbox" id="dashChatEnabled">
+       </div>
+     </div>
+     <div class="panel-block">
+       <h3>听歌点头</h3>
+       <div class="field-row">

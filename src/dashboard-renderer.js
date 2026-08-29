@@ -679,6 +679,9 @@ const voiceVoiceNameSelectEl = document.getElementById('voiceVoiceNameSelect');
 const voiceVoiceNameHintEl = document.getElementById('voiceVoiceNameHint');
 const voiceSttEngineSelectEl = document.getElementById('voiceSttEngineSelect');
 const voiceSttEngineHintEl = document.getElementById('voiceSttEngineHint');
+const voiceTtsEngineSelectEl = document.getElementById('voiceTtsEngineSelect');
+const voiceTtsEngineHintEl = document.getElementById('voiceTtsEngineHint');
+const voiceTtsEnginePiperWarningEl = document.getElementById('voiceTtsEnginePiperWarning');
 const voiceCpuModeEl = document.getElementById('voiceCpuMode');
 const voiceCpuModeHintEl = document.getElementById('voiceCpuModeHint');
 const voiceSettingsGroups = [
@@ -687,9 +690,11 @@ const voiceSettingsGroups = [
   document.getElementById('voiceSettingsGroup3'),
   document.getElementById('voiceSettingsGroup4'),
   document.getElementById('voiceSettingsGroup5'),
+  document.getElementById('voiceSettingsGroupTts'),
   document.getElementById('voiceSettingsGroup6'),
   document.getElementById('voiceSettingsGroup7'),
   voiceVoiceNameHintEl,
+  voiceTtsEngineHintEl,
   voiceSttEngineHintEl,
   voiceCpuModeHintEl,
 ];
@@ -699,6 +704,7 @@ voiceEnabledEl.addEventListener('change', (e) => {
   for (const group of voiceSettingsGroups) {
     group.style.display = e.target.checked ? 'block' : 'none';
   }
+  updateTtsEnginePiperWarning();
 });
 
 voiceVolumeEl.addEventListener('input', (e) => {
@@ -754,6 +760,17 @@ voiceVoiceNameSelectEl.addEventListener('change', (e) => {
 
 voiceSttEngineSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceSttEngine', e.target.value);
+});
+
+let piperModelAvailable = false;
+function updateTtsEnginePiperWarning() {
+  voiceTtsEnginePiperWarningEl.style.display =
+    voiceTtsEngineSelectEl.value === 'piper' && !piperModelAvailable && voiceEnabledEl.checked ? 'block' : 'none';
+}
+
+voiceTtsEngineSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceTtsEngine', e.target.value);
+  updateTtsEnginePiperWarning();
 });
 
 voiceCpuModeEl.addEventListener('change', (e) => {
@@ -879,10 +896,13 @@ function renderSettings(settings) {
   pendingVoiceSelection = settings.voiceVoiceName ?? '';
   voiceVoiceNameSelectEl.value = pendingVoiceSelection;
   voiceSttEngineSelectEl.value = settings.voiceSttEngine ?? 'sapi';
+  voiceTtsEngineSelectEl.value = settings.voiceTtsEngine ?? 'sapi';
+  piperModelAvailable = !!settings.voiceTtsEngineAvailable?.piper;
   voiceCpuModeEl.checked = !!settings.voiceCpuMode;
   for (const group of voiceSettingsGroups) {
     group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
   }
+  updateTtsEnginePiperWarning();
 
   // Populate chat settings
   chatEnabledEl.checked = !!settings.chatEnabled;
