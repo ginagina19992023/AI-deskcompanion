@@ -324,6 +324,28 @@
   }
   #chatPanelSend:hover { background: rgba(120, 24, 32, 0.2); }
   #chatPanelSend:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(120, 24, 32, 0.1); }
+  #chatVoiceInput {
+    background: transparent;
+    border: 1px solid rgba(100, 100, 100, 0.3);
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.2s;
+  }
+  #chatVoiceInput:hover {
+    background: rgba(100, 150, 255, 0.2);
+    border-color: rgba(100, 150, 255, 0.5);
+  }
+  #chatVoiceInput.listening {
+    background: rgba(255, 100, 100, 0.3);
+    border-color: rgba(255, 100, 100, 0.8);
+    animation: pulse 0.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
   #chatPanelScreenshot {
     flex: 0 0 auto;
     border: 1px solid rgba(120, 24, 32, 0.35);
@@ -720,7 +742,8 @@
   <div id="chatScreenshotChip" style="display:none;">📷 已附上截图，问点什么吧 <button id="chatScreenshotChipClear" aria-label="移除截图">✕</button></div>
   <div id="chatInputRow">
     <button id="chatPanelScreenshot" title="截屏问他" aria-label="截屏问他">📸</button>
-    <input id="chatPanelInput" type="text" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false">
+    <input id="chatPanelInput" type="text" placeholder="跟他说点什么… (F9 按键说话)" autocomplete="off" spellcheck="false">
+    <button id="chatVoiceInput" title="按住 F9 说话或点这个按钮">🎤</button>
     <button id="chatPanelSend">发送</button>
   </div>
 </div>

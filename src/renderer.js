@@ -32,6 +32,7 @@ const chatPanelHistEl = document.getElementById('chatPanelHist');
 const chatPanelNewEl = document.getElementById('chatPanelNew');
 const chatConvListEl = document.getElementById('chatConvList');
 const chatInputRowEl = document.getElementById('chatInputRow');
+const chatVoiceInputEl = document.getElementById('chatVoiceInput');
 const todoPanelEl = document.getElementById('todoPanel');
 const todoPanelCloseEl = document.getElementById('todoPanelClose');
 const todoTabTodoEl = document.getElementById('todoTabTodo');
@@ -1266,28 +1267,63 @@ window.pet.onScreenTip((tip) => {
   }
 });
 
+// Voice input button handlers (🎤 button in chat panel)
+let voiceInputActive = false;
+
+if (chatVoiceInputEl) {
+  chatVoiceInputEl.addEventListener('mousedown', () => {
+    if (!cfg.voice?.enabled) return;
+    voiceInputActive = true;
+    chatVoiceInputEl.classList.add('listening');
+    window.pet.voicePptStart();
+  });
+
+  chatVoiceInputEl.addEventListener('mouseup', () => {
+    voiceInputActive = false;
+    chatVoiceInputEl.classList.remove('listening');
+    window.pet.voicePptStop();
+  });
+}
+
 // Voice STT: push-to-talk key binding. F9 by default, configurable.
 // On keydown, send START to the STT helper; on keyup, send STOP.
-// Recognized transcripts are routed through the exact same
-// window.pet.chatSend() path as typed input.
+// Show listening state on the voice button when in chat panel.
 window.addEventListener('keydown', (e) => {
   const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
   if (e.key === pttKey && cfg.voice?.enabled && !e.repeat) {
+    if (chatPanelOpen && chatVoiceInputEl) {
+      voiceInputActive = true;
+      chatVoiceInputEl.classList.add('listening');
+    }
     window.pet.voicePptStart();
   }
 });
+
 window.addEventListener('keyup', (e) => {
   const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
   if (e.key === pttKey && cfg.voice?.enabled) {
+    if (chatVoiceInputEl) {
+      voiceInputActive = false;
+      chatVoiceInputEl.classList.remove('listening');
+    }
     window.pet.voicePptStop();
   }
 });
 
-// Voice transcript callback: treated identically to a typed message sent
-// via Enter press. Routes through window.pet.chatSend() so it hits all
-// the same downstream chat logic, history, bubble display, etc.
+// Voice transcript callback: when chat panel is open, append transcript to input
+// field; otherwise send as a regular chat message like before.
 window.pet.onVoiceTranscript((text) => {
-  if (text) window.pet.chatSend(text);
+  if (text) {
+    if (chatPanelOpen && chatPanelInputEl) {
+      // Append to existing input or replace if empty
+      const current = chatPanelInputEl.value.trim();
+      chatPanelInputEl.value = current ? current + ' ' + text : text;
+      chatPanelInputEl.focus();
+    } else {
+      // Chat panel not open, send as regular message
+      window.pet.chatSend(text);
+    }
+  }
 });
 
 window.pet.onVoiceCallModeState(({ active }) => {
