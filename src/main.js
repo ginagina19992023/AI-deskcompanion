@@ -11,6 +11,7 @@ import { createCompanionWatcher } from './companion-watcher.js';
 import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } from './screen-tip.js';
 import { createCameraSenseWatcher } from './camera-sense.js';
 import { createVoiceSttWatcher } from './voice-stt.js';
+import { createWhisperSttWatcher } from './voice-stt-whisper.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
@@ -587,18 +588,42 @@ function stopCameraSense() {
 
 function startVoiceStt() {
   if (voiceSttWatcher) return;
+  const onTranscript = (text) => {
+    if (cfg.debug) console.log('[voice-stt] transcript:', text);
+    if (alive()) win.webContents.send('pet:voice-transcript', text);
+    if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-transcript', text);
+  };
+  const onError = (err) => {
+    if (cfg.debug) console.error('[voice-stt]', err.message);
+    if (alive()) win.webContents.send('pet:voice-error', { message: err.message });
+    if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-error', { message: err.message });
+  };
+  // 'whisper' opts into the local Whisper pipeline (tools/mic-record.exe +
+  // whisper.cpp) -- meaningfully better Chinese accuracy than Windows
+  // SAPI's DictationGrammar, at the cost of needing the model/binary
+  // downloaded separately (see docs/WHISPER_STT_SETUP.md). Anything else,
+  // including unset, keeps the zero-setup SAPI default so this never
+  // breaks an existing install that hasn't downloaded those files.
+  if (cfg.voice?.sttEngine === 'whisper') {
+    const whisperCfg = cfg.voice.whisper ?? {};
+    voiceSttWatcher = createWhisperSttWatcher({
+      // || not ?? -- config.default.json ships these as "" (meaning "use
+      // the default"), and ?? treats "" as already-set, never falling
+      // through to the join(__dirname, ...) default at all.
+      micRecordPath: whisperCfg.micRecordPath || join(__dirname, '..', 'tools', 'mic-record', 'mic-record.exe'),
+      whisperExePath: whisperCfg.whisperExePath || join(__dirname, '..', 'tools', 'whisper', 'whisper-cli.exe'),
+      modelPath: whisperCfg.modelPath || join(__dirname, '..', 'tools', 'whisper', 'models', 'ggml-base.bin'),
+      outDir: whisperCfg.outDir || join(app.getPath('temp'), 'ai-deskcompanion-stt'),
+      language: whisperCfg.language || 'zh',
+      onTranscript,
+      onError,
+    });
+    return;
+  }
   voiceSttWatcher = createVoiceSttWatcher({
     scriptPath: join(__dirname, '..', 'tools', 'voice-stt.ps1'),
-    onTranscript: (text) => {
-      if (cfg.debug) console.log('[voice-stt] transcript:', text);
-      if (alive()) win.webContents.send('pet:voice-transcript', text);
-      if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-transcript', text);
-    },
-    onError: (err) => {
-      if (cfg.debug) console.error('[voice-stt]', err.message);
-      if (alive()) win.webContents.send('pet:voice-error', { message: err.message });
-      if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-error', { message: err.message });
-    },
+    onTranscript,
+    onError,
   });
 }
 
@@ -1059,6 +1084,19 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
     case 'voicePushToTalkKey':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.pushToTalkKey = value;
+      break;
+    case 'voiceSttEngine':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.sttEngine = value;
+      // startVoiceStt() only picks an engine the first time it creates
+      // voiceSttWatcher (`if (voiceSttWatcher) return;`) -- if one is
+      // already running, switching the setting alone wouldn't take
+      // effect until app restart. Tear it down and let the next
+      // start/call-mode press create a fresh one of the right kind.
+      if (voiceSttWatcher) {
+        voiceSttWatcher.dispose();
+        voiceSttWatcher = null;
+      }
       break;
     case 'cameraSenseIntervalMs':
       cfg.cameraSense = cfg.cameraSense ?? {};
@@ -1965,6 +2003,7 @@ function dashboardSnapshot() {
       voiceRate: cfg.voice?.rate ?? 1.0,
       voicePitch: cfg.voice?.pitch ?? 1.0,
       voiceVoiceName: cfg.voice?.voiceName ?? '',
+      voiceSttEngine: cfg.voice?.sttEngine ?? 'sapi',
       voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'Alt+G',
       chatEnabled: !!cfg.chat?.enabled,
       musicNodEnabled: !!cfg.musicNod?.enabled,

@@ -172,13 +172,22 @@
     "timeoutMs": 90000
   },
   "voice": {
-    "_what": "宠物开口说话（浏览器自带 speechSynthesis）+ 按键说话/通话模式语音输入（Windows 自带 SAPI）。默认关闭。",
+    "_what": "宠物开口说话（浏览器自带 speechSynthesis）+ 按键说话/通话模式语音输入。默认关闭。",
     "enabled": false,
     "voiceName": "",
     "rate": 1,
     "pitch": 1,
     "volume": 1,
-    "pushToTalkKey": "Alt+G"
+    "pushToTalkKey": "Alt+G",
+    "_sttEngine": "语音识别引擎：'sapi'（默认，Windows 自带，零配置但中文准确率较低）或 'whisper'（本地 whisper.cpp，中文准确率明显更好，但要先运行 tools/whisper/setup-whisper.ps1 下载模型和可执行文件，没下载好会报错回退不了——选 whisper 前务必先跑一遍那个脚本）。",
+    "sttEngine": "sapi",
+    "whisper": {
+      "_what": "sttEngine 为 'whisper' 时才用得上。modelPath/whisperExePath/micRecordPath 留空就用 tools/whisper 和 tools/mic-record 下的默认位置（main.js 里算的绝对路径，跟这个文件本身在哪个目录无关）；想换更准的模型（比如 ggml-small.bin，代价是纯 CPU 推理下更慢）就把 modelPath 填成那个文件的绝对路径。",
+      "modelPath": "",
+      "whisperExePath": "",
+      "micRecordPath": "",
+      "language": "zh"
+    }
   },
   "companion": {
     "_what": "感知 Codex/ChatGPT 桌宠的覆盖层窗口位置。纯只读：只向 Windows 查询窗口矩形，不接触、不注入、不修改 Codex 进程。找不到就安静回落到普通行为。",

@@ -455,6 +455,15 @@
       </div>
       <p class="hint" id="voiceVoiceNameHint" style="display: none;">列表来自本机 Windows 系统自带的语音包；系统默认经常是女声，想要男声角色配男声，从这里选一个名字含"男"或 Male 的试听效果</p>
 
+      <div class="field-row" id="voiceSettingsGroup6" style="display: none;">
+        <label for="voiceSttEngineSelect">语音识别引擎</label>
+        <select id="voiceSttEngineSelect" style="flex:1; max-width:280px;">
+          <option value="sapi">Windows 自带（SAPI，零配置）</option>
+          <option value="whisper">本地 Whisper（更准，需先下载模型）</option>
+        </select>
+      </div>
+      <p class="hint" id="voiceSttEngineHint" style="display: none;">Whisper 中文识别准确率明显优于系统自带引擎，但要先运行 tools/whisper/setup-whisper.ps1 下载模型（一次性，几百 MB），没下载就选这个会报错听不到反应</p>
+
       <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
         <label for="voicePushToTalkKey">推送通话快捷键</label>
         <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 Alt+G 或 F9" style="width:120px;">

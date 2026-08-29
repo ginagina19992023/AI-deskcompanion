@@ -31,3 +31,11 @@ docs/superpowers/
 venv/
 __pycache__/
 *.pyc
+
+# Whisper STT: downloaded via tools/whisper/setup-whisper.ps1, not
+# checked in (the model alone is ~140MB+, and the CLI/DLLs are a
+# third-party binary release, unlike the small first-party helpers this
+# repo does commit, e.g. tools/audio-nod/audio-nod.exe).
+tools/whisper/*.exe
+tools/whisper/*.dll
+tools/whisper/models/

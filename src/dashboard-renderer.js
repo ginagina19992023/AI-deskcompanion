@@ -430,13 +430,17 @@ const voicePitchEl = document.getElementById('voicePitch');
 const voicePushToTalkKeyEl = document.getElementById('voicePushToTalkKey');
 const voiceVoiceNameSelectEl = document.getElementById('voiceVoiceNameSelect');
 const voiceVoiceNameHintEl = document.getElementById('voiceVoiceNameHint');
+const voiceSttEngineSelectEl = document.getElementById('voiceSttEngineSelect');
+const voiceSttEngineHintEl = document.getElementById('voiceSttEngineHint');
 const voiceSettingsGroups = [
   document.getElementById('voiceSettingsGroup'),
   document.getElementById('voiceSettingsGroup2'),
   document.getElementById('voiceSettingsGroup3'),
   document.getElementById('voiceSettingsGroup4'),
   document.getElementById('voiceSettingsGroup5'),
+  document.getElementById('voiceSettingsGroup6'),
   voiceVoiceNameHintEl,
+  voiceSttEngineHintEl,
 ];
 
 voiceEnabledEl.addEventListener('change', (e) => {
@@ -495,6 +499,10 @@ populateVoiceNameSelect();
 
 voiceVoiceNameSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceVoiceName', e.target.value);
+});
+
+voiceSttEngineSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceSttEngine', e.target.value);
 });
 
 // Chat settings handlers
@@ -589,6 +597,7 @@ function renderSettings(settings) {
   voicePushToTalkKeyEl.value = settings.voicePushToTalkKey ?? 'Alt+G';
   pendingVoiceSelection = settings.voiceVoiceName ?? '';
   voiceVoiceNameSelectEl.value = pendingVoiceSelection;
+  voiceSttEngineSelectEl.value = settings.voiceSttEngine ?? 'sapi';
   for (const group of voiceSettingsGroups) {
     group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
   }
