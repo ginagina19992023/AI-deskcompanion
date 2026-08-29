@@ -3061,7 +3061,9 @@ function showGraphDetail(n) {
 function renderGraphDetailView(n) {
   memoryGraphDetailEl.innerHTML = '';
   const cat = document.createElement('div');
-  cat.innerHTML = `<span class="memory-category-badge" style="background:${MEMORY_CATEGORY_COLOR[n.category]};color:#fff;">${escapeHtml(n.category)}</span> 重要性 ${importanceDots(n.importance)}`;
+  const palette = currentGraphPalette();
+  const categoryColor = palette.categories[n.category] ?? palette.categories.其他;
+  cat.innerHTML = `<span class="memory-category-badge" style="background:${categoryColor};color:#fff;">${escapeHtml(n.category)}</span> 重要性 ${importanceDots(n.importance)}`;
   const text = document.createElement('div');
   text.style.margin = '8px 0';
   text.textContent = n.text;
@@ -3177,7 +3179,8 @@ function renderGraphDetailEdit(n) {
 function renderMemoryLegend() {
   const legendEl = document.getElementById('memoryLegend');
   if (legendEl.childElementCount) return; // static, build once
-  for (const [cat, color] of Object.entries(MEMORY_CATEGORY_COLOR)) {
+  const palette = currentGraphPalette();
+  for (const [cat, color] of Object.entries(palette.categories)) {
     const item = document.createElement('div');
     item.className = 'legend-item';
     const swatch = document.createElement('span');
