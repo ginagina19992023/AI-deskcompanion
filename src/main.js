@@ -12,6 +12,7 @@ import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } 
 import { createCameraSenseWatcher } from './camera-sense.js';
 import { createVoiceSttWatcher } from './voice-stt.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
+import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
 import { connectOutlookAccount, disconnectOutlookAccount, getOutlookAccountStatus, syncOnce as syncOutlookOnce, deleteOutlookTask } from './outlook-sync.js';
 import { startPomodoro, pomodoroRemainingMs } from './pomodoro.js';
@@ -35,6 +36,7 @@ const root = join(__dirname, '..');
 const configPath = join(root, 'config.json');
 const defaultConfigPath = join(root, 'config.default.json');
 const cfg = JSON.parse(readFileSync(existsSync(configPath) ? configPath : defaultConfigPath, 'utf8'));
+setOllamaLockDebug(!!cfg.debug);
 const activityCfg = { enabled: true, ...(cfg.claudeStatus ?? {}), ...(cfg.aiActivity ?? {}) };
 
 // Published builds keep portable, repository-relative atlas paths in the
@@ -3327,15 +3329,21 @@ function memoryOllamaUrl() {
 async function embedText(text) {
   if (!text) return null;
   try {
-    const res = await fetch(`${memoryOllamaUrl()}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MEMORY_EMBED_MODEL, prompt: text }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return Array.isArray(data.embedding) ? data.embedding : null;
+    // 'high' priority -- this runs synchronously inside the chat-send
+    // handler, blocking the reply the user is waiting on, so it must not
+    // sit behind an ambient screen-tip call in the shared Ollama queue
+    // (see ollama-lock.js).
+    return await withOllamaLock(async () => {
+      const res = await fetch(`${memoryOllamaUrl()}/api/embeddings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: MEMORY_EMBED_MODEL, prompt: text }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.embedding) ? data.embedding : null;
+    }, { priority: 'high' });
   } catch {
     return null; // Ollama unreachable or nomic-embed-text not pulled -- retrieval just falls back to recency+importance
   }
@@ -3801,13 +3809,16 @@ let chatRequestInFlight = false;
 ipcMain.on('pet:chat-send', async (e, text) => {
   const senderWin = BrowserWindow.fromWebContents(e.sender);
   const replyAlive = () => senderWin && !senderWin.isDestroyed();
+  if (cfg.debug) console.log('[chat] send from', senderWin ? (senderWin === win ? 'pet-window' : 'dashboard') : 'unknown', 'text:', text.slice(0, 50));
   if (typeof text !== 'string' || !text.trim() || !replyAlive()) return;
   if (chatRequestInFlight) {
+    if (cfg.debug) console.log('[chat] request in flight, rejecting');
     senderWin.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
     return;
   }
   const chatCfg = cfg.chat ?? {};
   if (!chatCfg.enabled) {
+    if (cfg.debug) console.log('[chat] chat disabled');
     senderWin.webContents.send('pet:chat-error', { message: '聊天功能未开启（config.json 里 chat.enabled）。' });
     return;
   }
@@ -3818,10 +3829,14 @@ ipcMain.on('pet:chat-send', async (e, text) => {
   if (conv.title === '新对话') conv.title = userText.slice(0, 18);
   conv.updatedAt = Date.now();
   saveChatConvs();
+  if (cfg.debug) console.log('[chat] step: saved conv, calling memoryContextBlock');
   const pet = activePet();
   const basePrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
-  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${EMOTION_TAG_INSTRUCTION}` : `${chatCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
+  const memBlock = basePrompt ? await memoryContextBlock(userText) : '';
+  if (cfg.debug) console.log('[chat] step: memoryContextBlock done, len=', memBlock.length);
+  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${memBlock}${EMOTION_TAG_INSTRUCTION}` : `${chatCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
+  if (cfg.debug) console.log('[chat] step: calling streamChatReply, context len=', context.length);
   try {
     // Check if voice mode is enabled to pass voice config for TTS
     const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;

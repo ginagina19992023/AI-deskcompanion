@@ -3,27 +3,39 @@
 // provider-agnostic and capture-source-agnostic: this module only ever
 // sees a base64 image, never how it was obtained.
 
+import { withOllamaLock } from './ollama-lock.js';
+
 const DEFAULT_PROMPT = 'Describe what is in this image in one short sentence.';
 
 // Ollama's /api/generate: local, no auth, single base64 image per call.
+//
+// Wrapped in withOllamaLock -- see ollama-lock.js -- so an ambient
+// screen-tip/camera-sense call never overlaps a chat.js streamOllamaChat
+// call. Both hit the same CPU-only Ollama instance on this machine
+// (confirmed via `ollama ps`: size_vram 0 for every loaded model), and the
+// ~42s cold-start cost noted below gets paid *again* by whichever call
+// loses the race when two different models both need to be resident at
+// once, instead of one call simply waiting its turn.
 export async function callOllama(cfg, base64) {
-  const res = await fetch(`${(cfg.ollamaUrl ?? 'http://localhost:11434').replace(/\/+$/, '')}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    // Measured: a cold-start call (model not yet loaded into memory) took
-    // ~42s on this machine; a warm call was under a second. 20s killed the
-    // very first real call every time.
-    signal: AbortSignal.timeout(cfg.timeoutMs ?? 90000),
-    body: JSON.stringify({
-      model: cfg.model ?? 'llava',
-      prompt: cfg.prompt ?? DEFAULT_PROMPT,
-      images: [base64],
-      stream: false,
-    }),
+  return withOllamaLock(async () => {
+    const res = await fetch(`${(cfg.ollamaUrl ?? 'http://localhost:11434').replace(/\/+$/, '')}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Measured: a cold-start call (model not yet loaded into memory) took
+      // ~42s on this machine; a warm call was under a second. 20s killed the
+      // very first real call every time.
+      signal: AbortSignal.timeout(cfg.timeoutMs ?? 90000),
+      body: JSON.stringify({
+        model: cfg.model ?? 'llava',
+        prompt: cfg.prompt ?? DEFAULT_PROMPT,
+        images: [base64],
+        stream: false,
+      }),
+    });
+    if (!res.ok) throw new Error(`ollama http ${res.status}`);
+    const data = await res.json();
+    return (data.response ?? '').trim();
   });
-  if (!res.ok) throw new Error(`ollama http ${res.status}`);
-  const data = await res.json();
-  return (data.response ?? '').trim();
 }
 
 // Any provider exposing an OpenAI-style /chat/completions endpoint with

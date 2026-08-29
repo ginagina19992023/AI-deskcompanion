@@ -15,6 +15,8 @@
 // text in as it's generated is a real fix for that, not just a cosmetic
 // typewriter effect.
 
+import { withOllamaLock } from './ollama-lock.js';
+
 const DEFAULT_SYSTEM_PROMPT =
   'You are a desktop pet companion. Reply in Chinese, in character, in one or two short sentences -- this is a small chat bubble, not an essay.';
 
@@ -49,37 +51,48 @@ async function readNdjsonStream(res, onLine) {
 
 // Ollama's /api/chat streaming: one JSON object per line, no "data:"
 // framing, each carrying an incremental message.content chunk.
+//
+// Wrapped in withOllamaLock -- see ollama-lock.js -- so this never runs at
+// the same moment as a screen-tip/camera-sense vision call. Both compete
+// for the same CPU-only Ollama instance on this machine, and letting them
+// overlap causes repeated model evict/reload thrashing instead of a clean
+// queue, which is what was silently turning fast chat replies into 90s+
+// timeouts.
 async function streamOllamaChat(cfg, messages, onDelta) {
-  const res = await fetch(`${(cfg.ollamaUrl ?? 'http://localhost:11434').replace(/\/+$/, '')}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(cfg.timeoutMs ?? 120000),
-    body: JSON.stringify({
-      model: cfg.model ?? 'llava',
-      messages,
-      stream: true,
-      // Reasoning-capable models (e.g. gemma4) otherwise spend tens of
-      // seconds "thinking" in a field that isn't message.content at all,
-      // so streaming wouldn't even show anything during that time.
-      think: false,
-    }),
-  });
-  if (!res.ok) throw new Error(`ollama http ${res.status}`);
-  let full = '';
-  await readNdjsonStream(res, (line) => {
-    let obj;
-    try {
-      obj = JSON.parse(line);
-    } catch {
-      return;
-    }
-    const delta = obj.message?.content ?? '';
-    if (delta) {
-      full += delta;
-      onDelta(delta);
-    }
-  });
-  return full.trim();
+  // 'high' priority: the user is actively watching for this reply, unlike
+  // the ambient screen-tip/memory-extraction calls sharing this queue.
+  return withOllamaLock(async () => {
+    const res = await fetch(`${(cfg.ollamaUrl ?? 'http://localhost:11434').replace(/\/+$/, '')}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(cfg.timeoutMs ?? 120000),
+      body: JSON.stringify({
+        model: cfg.model ?? 'llava',
+        messages,
+        stream: true,
+        // Reasoning-capable models (e.g. gemma4) otherwise spend tens of
+        // seconds "thinking" in a field that isn't message.content at all,
+        // so streaming wouldn't even show anything during that time.
+        think: false,
+      }),
+    });
+    if (!res.ok) throw new Error(`ollama http ${res.status}`);
+    let full = '';
+    await readNdjsonStream(res, (line) => {
+      let obj;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        return;
+      }
+      const delta = obj.message?.content ?? '';
+      if (delta) {
+        full += delta;
+        onDelta(delta);
+      }
+    });
+    return full.trim();
+  }, { priority: 'high' });
 }
 
 // Any OpenAI-style /chat/completions endpoint with stream:true -- standard
