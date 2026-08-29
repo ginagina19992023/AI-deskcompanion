@@ -90,8 +90,9 @@
     "recentDays": 4
   },
   "chat": {
-    "_what": "跟宠物真的对话（不同于 claudeStatus——那个只反映 Claude Code 在干嘛；也不同于屏幕提示——那个是单向的旁白）。默认关闭，开启前需装好 Ollama 并拉一个文本模型。provider/baseUrl/apiKeyEnv 用法跟 screenTips 完全一样：'ollama' 只连本机不联网，'openai-compatible' 才会把对话发到你配置的 baseUrl。每只宠物在 pets[] 里自己的 chatSystemPrompt 决定说话风格；这里的 systemPrompt 只是没配置人设时的兜底。",
+    "_what": "跟宠物真的对话。需要 Ollama 或 OpenAI 兼容服务。默认关闭。voiceMode 启用时宠物会用语音读出回复。",
     "enabled": false,
+    "voiceMode": false,
     "provider": "ollama",
     "ollamaUrl": "http://localhost:11434",
     "_model": "gemma4:12b（本机已拉取）而不是 llava——llava 是视觉模型，纯文字角色扮演对话质量不如 gemma4。",
@@ -99,7 +100,7 @@
     "baseUrl": "",
     "apiKeyEnv": "",
     "timeoutMs": 90000,
-    "systemPrompt": "You are a desktop pet companion. Reply in Chinese, in one or two short sentences."
+    "systemPrompt": "你是塞巴斯蒂安，一个桌面宠物。用简短的中文回复（一到两句话）。"
   },
   "pomodoro": {
     "_what": "右键菜单「开始番茄钟」用的时长。待办和番茄钟记录存在 data/todos.json 和 data/pomodoro-sessions.json（不是这个文件——那两个是随时变化的用户数据，不是要手改的设置）。",
@@ -171,7 +172,7 @@
     "timeoutMs": 90000
   },
   "voice": {
-    "_what": "宠物开口说话（浏览器自带 speechSynthesis，本地系统语音，不联网）+ 按键说话/通话模式语音输入（Windows 自带 SAPI 中文听写，通过 tools/voice-stt.ps1 离线识别，音频不进 Electron 进程）。默认关闭。",
+    "_what": "宠物开口说话（浏览器自带 speechSynthesis）+ 按键说话/通话模式语音输入（Windows 自带 SAPI）。默认关闭。",
     "enabled": false,
     "voiceName": "",
     "rate": 1.0,
