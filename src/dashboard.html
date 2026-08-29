@@ -17,29 +17,109 @@
        --skin-rgb in index.html) -- kept in sync from the same
        cfg.theme.skinColor setting (applySkinColor in dashboard-renderer.js)
        so choosing a colour in "控制面板外观" re-themes the whole dashboard
-       too, not just the pet on the desktop. */
+       too, not just the pet on the desktop. This is the glass panels'
+       *base* tone; light themes want it pale, dark themes want it near-black
+       -- each [data-theme] block below overrides it alongside the accent/
+       text colours so all three always move together as one coherent look. */
     --skin-rgb: 250, 240, 228;
+    /* The control panel's base background layer (#bgLayer), independent
+       from --skin-rgb/--panel-alpha above -- those two are reserved for
+       the sidebar/module frosted-glass blocks and deliberately don't grow
+       a background feature of their own. Defaults to tracking --skin-rgb
+       (re-resolved live, so every preset below "just works" without
+       redeclaring this) until the "背景" picker sets an explicit
+       override, same convention as --theme-accent-rgb/--theme-text-rgb. */
+    --bg-rgb: var(--skin-rgb);
+    --bg-alpha: 1;
+    /* Every accent-coloured border/highlight/active-state in this file was
+       a hardcoded rgba(120, 24, 32, X) -- bulk-converted to read this
+       variable instead so a theme preset can re-skin the whole dashboard by
+       overriding four variables in one place instead of hunting down every
+       rgba() literal. Same for --theme-text-rgb below. Defaults here
+       reproduce the original hardcoded values exactly (this is the
+       "经典" preset), so an install that's never touched 外观 sees no
+       visual change at all. */
+    --theme-accent-rgb: 120, 24, 32;
+    --theme-text-rgb: 40, 16, 20;
+    /* Chat-tab-msg assistant bubble background (a separate, low-alpha
+       neutral rather than an accent tint, since "assistant" isn't the
+       theme's brand colour) and the same for its border. */
+    --theme-assistant-bubble-rgb: 0, 0, 0;
+    /* Overall UI scale (text + spacing together, not just font-size) for
+       the "界面缩放" slider -- applied as `zoom`, not a font-size
+       override, so short labels/buttons/icons scale proportionally
+       instead of just the text growing inside an unchanged layout box.
+       Electron's Chromium engine supports zoom natively. */
+    --ui-scale: 1;
   }
+  /* Preset themes: each overrides the same four variables above, nothing
+     else needs to know a theme system exists. "classic" (the default
+     above, no data-theme attribute) is the original warm cream + maroon
+     look this app shipped with; these are additive options, not
+     replacements. */
+  :root[data-theme="dark-red"] {
+    --skin-rgb: 26, 22, 24;
+    --theme-accent-rgb: 214, 45, 55;
+    --theme-text-rgb: 232, 222, 220;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  :root[data-theme="dark-pink"] {
+    --skin-rgb: 26, 22, 26;
+    --theme-accent-rgb: 232, 100, 155;
+    --theme-text-rgb: 232, 224, 228;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  :root[data-theme="light-pink"] {
+    --skin-rgb: 253, 240, 244;
+    --theme-accent-rgb: 214, 51, 108;
+    --theme-text-rgb: 64, 24, 38;
+    --theme-assistant-bubble-rgb: 0, 0, 0;
+  }
+  :root[data-theme="cyber-green"] {
+    --skin-rgb: 20, 50, 40;
+    --theme-accent-rgb: 0, 230, 118;
+    --theme-text-rgb: 210, 255, 228;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  :root[data-theme="liquid-glass"] {
+    --skin-rgb: 245, 245, 247;
+    --theme-accent-rgb: 0, 122, 255;
+    --theme-text-rgb: 51, 51, 51;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  #main, #sidebar { zoom: var(--ui-scale); }
   html, body {
     margin: 0;
     height: 100%;
     font-family: "Microsoft YaHei", sans-serif;
-    /* Keep the stable framed/opaque renderer surface; the native Electron
-       window opacity is adjusted by the same slider, so the real desktop
-       shows through without returning to the crash-prone transparent
-       frameless dashboard implementation. Lightness varies across the
-       gradient stops (via color-mix) the same way the original fixed hex
-       stops did, just now derived from --skin-rgb instead of hardcoded. */
-    background: radial-gradient(
-      circle at 15% 0%,
-      color-mix(in srgb, rgb(var(--skin-rgb)) 88%, white) 0%,
-      rgb(var(--skin-rgb)) 32%,
-      color-mix(in srgb, rgb(var(--skin-rgb)) 82%, black) 68%,
-      color-mix(in srgb, rgb(var(--skin-rgb)) 65%, black) 100%
-    );
-    color: rgba(40, 16, 20, 0.92);
+    background: transparent;
+    color: rgba(var(--theme-text-rgb), 0.92);
   }
   body { display: flex; overflow: hidden; }
+  /* The window's actual background: a fixed full-viewport layer sitting
+     behind #sidebar/#main (negative z-index keeps it behind body's normal-
+     flow content regardless of paint-order rules for positioned elements)
+     so its own opacity (the "背景透明度" slider) fades only this layer,
+     not the sidebar/module content sitting on top of it. Lightness varies
+     across the gradient stops (via color-mix) the same way the original
+     fixed hex stops did, just now derived from --bg-rgb. Picking a
+     background image (JS sets an inline background-image) fully replaces
+     this gradient -- background-size/position stay in effect either way. */
+  #bgLayer {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    opacity: var(--bg-alpha);
+    background: radial-gradient(
+      circle at 15% 0%,
+      color-mix(in srgb, rgb(var(--bg-rgb)) 88%, white) 0%,
+      rgb(var(--bg-rgb)) 32%,
+      color-mix(in srgb, rgb(var(--bg-rgb)) 82%, black) 68%,
+      color-mix(in srgb, rgb(var(--bg-rgb)) 65%, black) 100%
+    );
+    background-size: cover;
+    background-position: center;
+  }
 
   #sidebar {
     width: 190px;
@@ -47,7 +127,7 @@
     background: rgba(var(--skin-rgb), calc(var(--panel-alpha) * 0.55));
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border-right: 1px solid rgba(120, 24, 32, 0.15);
+    border-right: 1px solid rgba(var(--theme-accent-rgb), 0.15);
     display: flex;
     flex-direction: column;
     padding: 14px 0;
@@ -56,14 +136,14 @@
     font-size: 14px;
     margin: 0;
     padding: 0 18px 14px;
-    border-bottom: 1px solid rgba(120, 24, 32, 0.15);
+    border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.15);
   }
   #navList { list-style: none; margin: 10px 0 0; padding: 0; flex: 1 1 auto; }
   .nav-group-label {
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    color: rgba(40, 16, 20, 0.4);
+    color: rgba(var(--theme-text-rgb), 0.4);
     padding: 14px 18px 4px;
   }
   .nav-group-label:first-child { padding-top: 4px; }
@@ -77,108 +157,108 @@
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
-    color: rgba(40, 16, 20, 0.75);
+    color: rgba(var(--theme-text-rgb), 0.75);
     border-left: 3px solid transparent;
   }
-  .nav-btn:hover { background: rgba(120, 24, 32, 0.08); }
+  .nav-btn:hover { background: rgba(var(--theme-accent-rgb), 0.08); }
   .nav-btn.active {
-    background: rgba(120, 24, 32, 0.13);
-    color: rgba(120, 24, 32, 0.95);
+    background: rgba(var(--theme-accent-rgb), 0.13);
+    color: rgba(var(--theme-accent-rgb), 0.95);
     font-weight: 700;
-    border-left-color: rgba(120, 24, 32, 0.7);
+    border-left-color: rgba(var(--theme-accent-rgb), 0.7);
   }
-  #sidebarFooter { font-size: 10.5px; color: rgba(40, 16, 20, 0.45); padding: 10px 18px 0; }
+  #sidebarFooter { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.45); padding: 10px 18px 0; }
 
   #main { flex: 1 1 auto; overflow-y: auto; padding: 26px 34px; }
   .section { display: none; }
   .section.active { display: block; }
   .section h2 { margin: 0 0 4px; font-size: 19px; }
-  .section .subtitle { font-size: 12px; color: rgba(40, 16, 20, 0.55); margin: 0 0 20px; }
+  .section .subtitle { font-size: 12px; color: rgba(var(--theme-text-rgb), 0.55); margin: 0 0 20px; }
 
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 26px; }
   .card {
     background: rgba(var(--skin-rgb),var(--panel-alpha));
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(120, 24, 32, 0.14);
-    border-radius: 10px;
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.14);
+    border-radius: 16px;
     padding: 14px 16px;
-    box-shadow: 0 4px 18px rgba(120, 24, 32, 0.06);
+    box-shadow: 0 4px 18px rgba(var(--theme-accent-rgb), 0.06);
   }
-  .card .label { font-size: 11px; color: rgba(40, 16, 20, 0.55); margin-bottom: 6px; }
+  .card .label { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.55); margin-bottom: 6px; }
   .card .value { font-size: 21px; font-weight: 700; line-height: 1.2; }
-  .card .detail { font-size: 11.5px; color: rgba(40, 16, 20, 0.65); margin-top: 4px; line-height: 1.4; }
+  .card .detail { font-size: 11.5px; color: rgba(var(--theme-text-rgb), 0.65); margin-top: 4px; line-height: 1.4; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 
   .panel-block {
     background: rgba(var(--skin-rgb),var(--panel-alpha));
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(120, 24, 32, 0.14);
-    border-radius: 10px;
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.14);
+    border-radius: 16px;
     padding: 16px 18px;
     margin-bottom: 16px;
-    box-shadow: 0 4px 18px rgba(120, 24, 32, 0.06);
+    box-shadow: 0 4px 18px rgba(var(--theme-accent-rgb), 0.06);
   }
   .panel-block h3 { margin: 0 0 12px; font-size: 13.5px; }
   .sound-file-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  .sound-file-row .sound-file-label { font-size: 12.5px; color: rgba(40, 16, 20, 0.8); min-width: 130px; }
-  .sound-file-row .sound-file-current { flex: 1; font-size: 11.5px; color: rgba(40, 16, 20, 0.55); }
+  .sound-file-row .sound-file-label { font-size: 12.5px; color: rgba(var(--theme-text-rgb), 0.8); min-width: 130px; }
+  .sound-file-row .sound-file-current { flex: 1; font-size: 11.5px; color: rgba(var(--theme-text-rgb), 0.55); }
   .field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
   .field-row:last-child { margin-bottom: 0; }
-  .field-row label { font-size: 12.5px; color: rgba(40, 16, 20, 0.8); min-width: 130px; }
+  .field-row label { font-size: 12.5px; color: rgba(var(--theme-text-rgb), 0.8); min-width: 130px; }
   .field-row select, .field-row input[type="number"] {
     font-family: inherit;
     font-size: 12.5px;
     padding: 5px 8px;
-    border: 1px solid rgba(120, 24, 32, 0.3);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
     border-radius: 6px;
     background: rgba(var(--skin-rgb),0.9);
-    color: rgba(40, 16, 20, 0.95);
+    color: rgba(var(--theme-text-rgb), 0.95);
   }
-  .field-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: rgba(120, 24, 32, 0.85); }
-  .hint { font-size: 10.5px; color: rgba(40, 16, 20, 0.5); margin-top: 8px; line-height: 1.5; }
+  .field-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: rgba(var(--theme-accent-rgb), 0.85); }
+  .hint { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.5); margin-top: 8px; line-height: 1.5; }
 
   button.btn {
     font-family: inherit;
     font-size: 12.5px;
     padding: 6px 14px;
     border-radius: 7px;
-    border: 1px solid rgba(120, 24, 32, 0.4);
-    background: rgba(120, 24, 32, 0.08);
-    color: rgba(120, 24, 32, 0.95);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.4);
+    background: rgba(var(--theme-accent-rgb), 0.08);
+    color: rgba(var(--theme-accent-rgb), 0.95);
     cursor: pointer;
   }
-  button.btn:hover { background: rgba(120, 24, 32, 0.16); }
-  button.btn.primary { background: rgba(120, 24, 32, 0.85); color: #fff; }
-  button.btn.primary:hover { background: rgba(120, 24, 32, 0.95); }
-  button.btn.active { background: rgba(120, 24, 32, 0.85); color: #fff; border-color: rgba(120, 24, 32, 0.85); }
+  button.btn:hover { background: rgba(var(--theme-accent-rgb), 0.16); }
+  button.btn.primary { background: rgba(var(--theme-accent-rgb), 0.85); color: #fff; }
+  button.btn.primary:hover { background: rgba(var(--theme-accent-rgb), 0.95); }
+  button.btn.active { background: rgba(var(--theme-accent-rgb), 0.85); color: #fff; border-color: rgba(var(--theme-accent-rgb), 0.85); }
 
   #memoryGraphCanvas {
     width: 100%;
     max-width: 760px;
     height: 480px;
-    border: 1px solid rgba(120, 24, 32, 0.15);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.15);
     border-radius: 10px;
     background: rgba(var(--skin-rgb),var(--panel-alpha));
     cursor: grab;
     display: block;
   }
   #memoryGraphDetail { margin-top: 12px; font-size: 12.5px; line-height: 1.5; }
-  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: rgba(40, 16, 20, 0.85); }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: rgba(var(--theme-text-rgb), 0.85); }
   .legend-swatch { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
-  .graph-detail-source { font-size: 11px; color: rgba(40, 16, 20, 0.55); margin-top: 4px; }
+  .graph-detail-source { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.55); margin-top: 4px; }
 
   #todoAddRow { display: flex; gap: 8px; margin-bottom: 14px; }
-  #todoAddRow input { flex: 1; font-family: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid rgba(120, 24, 32, 0.3); border-radius: 7px; }
-  .list-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: rgba(120, 24, 32, 0.04); margin-bottom: 6px; }
+  #todoAddRow input { flex: 1; font-family: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid rgba(var(--theme-accent-rgb), 0.3); border-radius: 7px; }
+  .list-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: rgba(var(--theme-accent-rgb), 0.04); margin-bottom: 6px; }
   .list-item .text { flex: 1; font-size: 13px; }
   .todo-edit-form { flex-direction: column; align-items: stretch; padding: 12px; }
   .todo-edit-title {
     font-size: 14px;
     padding: 7px 10px;
     border-radius: 6px;
-    border: 1px solid rgba(120, 24, 32, 0.3);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
     background: rgba(var(--skin-rgb),0.85);
     margin-bottom: 8px;
   }
@@ -188,20 +268,20 @@
     flex-direction: column;
     gap: 4px;
     font-size: 11px;
-    color: rgba(40, 16, 20, 0.6);
+    color: rgba(var(--theme-text-rgb), 0.6);
   }
   .todo-edit-fields input {
     font-size: 12.5px;
     padding: 6px 9px;
     border-radius: 6px;
-    border: 1px solid rgba(120, 24, 32, 0.25);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
     background: rgba(var(--skin-rgb),0.85);
   }
-  .task-item, .history-item, .summary-item { padding: 9px 12px; border-radius: 8px; background: rgba(120, 24, 32, 0.04); margin-bottom: 8px; cursor: default; }
+  .task-item, .history-item, .summary-item { padding: 9px 12px; border-radius: 8px; background: rgba(var(--theme-accent-rgb), 0.04); margin-bottom: 8px; cursor: default; }
   .task-item { cursor: pointer; }
-  .task-item:hover { background: rgba(120, 24, 32, 0.1); }
+  .task-item:hover { background: rgba(var(--theme-accent-rgb), 0.1); }
   .task-item-title { font-size: 13px; font-weight: 600; }
-  .task-item-detail { font-size: 11.5px; color: rgba(40, 16, 20, 0.6); margin-top: 2px; }
+  .task-item-detail { font-size: 11.5px; color: rgba(var(--theme-text-rgb), 0.6); margin-top: 2px; }
   .history-item { display: flex; gap: 10px; scroll-margin-top: 20px; transition: background 0.3s, box-shadow 0.3s; border-radius: 8px; padding: 4px; }
   .history-item.highlight { background: rgba(196, 138, 46, 0.18); box-shadow: 0 0 0 2px rgba(196, 138, 46, 0.5); }
   .history-item img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; flex: 0 0 auto; cursor: zoom-in; }
@@ -211,43 +291,43 @@
      list's full description text. */
   #dashHistoryGallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   #focusHeatmapGrid { display: inline-grid; grid-template-columns: 62px repeat(24, 15px); gap: 2px; align-items: center; }
-  .heatmap-hour-label { font-size: 9px; color: rgba(40, 16, 20, 0.45); text-align: center; }
-  .heatmap-day-label { font-size: 10.5px; color: rgba(40, 16, 20, 0.65); padding-right: 4px; white-space: nowrap; }
-  .heatmap-cell { width: 15px; height: 15px; border-radius: 3px; background: rgba(120, 24, 32, 0.06); cursor: default; box-sizing: border-box; }
+  .heatmap-hour-label { font-size: 9px; color: rgba(var(--theme-text-rgb), 0.45); text-align: center; }
+  .heatmap-day-label { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.65); padding-right: 4px; white-space: nowrap; }
+  .heatmap-cell { width: 15px; height: 15px; border-radius: 3px; background: rgba(var(--theme-accent-rgb), 0.06); cursor: default; box-sizing: border-box; }
   .heatmap-cell.has-data { cursor: pointer; }
   .heatmap-cell.has-pomodoro { box-shadow: inset 0 0 0 1.5px rgba(196, 138, 46, 0.9); }
   .pomo-item { margin-bottom: 14px; }
-  .pomo-item-head { display: flex; justify-content: space-between; font-size: 11.5px; color: rgba(40, 16, 20, 0.7); margin-bottom: 4px; }
+  .pomo-item-head { display: flex; justify-content: space-between; font-size: 11.5px; color: rgba(var(--theme-text-rgb), 0.7); margin-bottom: 4px; }
   .pomo-item-ratio { font-weight: 700; }
-  .pomo-timeline { display: flex; width: 100%; height: 16px; border-radius: 5px; overflow: hidden; background: rgba(120, 24, 32, 0.06); }
+  .pomo-timeline { display: flex; width: 100%; height: 16px; border-radius: 5px; overflow: hidden; background: rgba(var(--theme-accent-rgb), 0.06); }
   .pomo-seg { height: 100%; }
   .pomo-seg-focus { background: rgba(74, 140, 92, 0.85); }
   .pomo-seg-slack { background: rgba(196, 42, 42, 0.8); }
   .pomo-seg-uncertain { background: rgba(196, 138, 46, 0.6); }
-  .pomo-seg-none { background: rgba(120, 24, 32, 0.05); }
+  .pomo-seg-none { background: rgba(var(--theme-accent-rgb), 0.05); }
   .usage-row { margin-bottom: 12px; }
   .usage-row-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; margin-bottom: 4px; }
-  .usage-row-label { font-weight: 700; color: rgba(40, 16, 20, 0.85); }
-  .usage-row-sub { font-size: 10.5px; color: rgba(40, 16, 20, 0.5); margin-top: 1px; }
-  .usage-row-value { font-size: 11.5px; color: rgba(40, 16, 20, 0.6); }
-  .usage-bar-track { width: 100%; height: 7px; border-radius: 4px; background: rgba(120, 24, 32, 0.08); overflow: hidden; }
+  .usage-row-label { font-weight: 700; color: rgba(var(--theme-text-rgb), 0.85); }
+  .usage-row-sub { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.5); margin-top: 1px; }
+  .usage-row-value { font-size: 11.5px; color: rgba(var(--theme-text-rgb), 0.6); }
+  .usage-bar-track { width: 100%; height: 7px; border-radius: 4px; background: rgba(var(--theme-accent-rgb), 0.08); overflow: hidden; }
   .usage-bar-fill { height: 100%; border-radius: 4px; transition: width 0.2s; }
   .usage-bar-fill.ok { background: rgba(74, 140, 92, 0.85); }
   .usage-bar-fill.warn { background: rgba(196, 138, 46, 0.85); }
   .usage-bar-fill.hot { background: rgba(196, 42, 42, 0.85); }
   .gallery-item { cursor: pointer; }
-  .gallery-item img { width: 100%; height: 130px; object-fit: cover; border-radius: 8px; display: block; background: rgba(120, 24, 32, 0.06); }
-  .gallery-item-caption { font-size: 11px; color: rgba(40, 16, 20, 0.75); margin-top: 4px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .gallery-item-time { font-size: 10px; color: rgba(40, 16, 20, 0.5); }
-  .history-item-time, .summary-item-time { font-size: 10.5px; color: rgba(40, 16, 20, 0.5); }
-  .history-item-desc, .summary-item-text { font-size: 12px; color: rgba(40, 16, 20, 0.88); line-height: 1.4; margin-top: 2px; white-space: pre-line; }
+  .gallery-item img { width: 100%; height: 130px; object-fit: cover; border-radius: 8px; display: block; background: rgba(var(--theme-accent-rgb), 0.06); }
+  .gallery-item-caption { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.75); margin-top: 4px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .gallery-item-time { font-size: 10px; color: rgba(var(--theme-text-rgb), 0.5); }
+  .history-item-time, .summary-item-time { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.5); }
+  .history-item-desc, .summary-item-text { font-size: 12px; color: rgba(var(--theme-text-rgb), 0.88); line-height: 1.4; margin-top: 2px; white-space: pre-line; }
   .history-item-source {
     display: inline-block;
     font-size: 9.5px;
     padding: 1px 6px;
     border-radius: 6px;
-    background: rgba(120, 24, 32, 0.08);
-    color: rgba(120, 24, 32, 0.8);
+    background: rgba(var(--theme-accent-rgb), 0.08);
+    color: rgba(var(--theme-accent-rgb), 0.8);
     margin-bottom: 2px;
   }
   #historyFilterBar {
@@ -257,7 +337,7 @@
     gap: 10px;
     padding: 8px 0 10px;
     margin-bottom: 6px;
-    border-bottom: 1px solid rgba(120, 24, 32, 0.1);
+    border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.1);
   }
   #historyFilterText {
     flex: 1 1 160px;
@@ -265,12 +345,12 @@
     font-family: inherit;
     font-size: 12px;
     padding: 5px 8px;
-    border: 1px solid rgba(120, 24, 32, 0.3);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
     border-radius: 6px;
   }
-  .filter-check { display: flex; align-items: center; gap: 4px; font-size: 11px; color: rgba(40, 16, 20, 0.75); white-space: nowrap; cursor: pointer; }
-  .filter-check input { accent-color: rgba(120, 24, 32, 0.85); }
-  .empty-state { font-size: 12.5px; color: rgba(40, 16, 20, 0.5); padding: 10px 2px; }
+  .filter-check { display: flex; align-items: center; gap: 4px; font-size: 11px; color: rgba(var(--theme-text-rgb), 0.75); white-space: nowrap; cursor: pointer; }
+  .filter-check input { accent-color: rgba(var(--theme-accent-rgb), 0.85); }
+  .empty-state { font-size: 12.5px; color: rgba(var(--theme-text-rgb), 0.5); padding: 10px 2px; }
 
   #historyNav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
   #historyNav button.btn { padding: 4px 10px; }
@@ -278,7 +358,7 @@
 
   #reportText { font-size: 13px; line-height: 1.6; white-space: pre-line; margin-top: 10px; }
 
-  .shortcut-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(120, 24, 32, 0.08); }
+  .shortcut-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.08); }
   .shortcut-row:last-child { border-bottom: none; }
   .shortcut-row .shortcut-label { flex: 1 1 auto; font-size: 13px; }
   .shortcut-row kbd {
@@ -286,20 +366,20 @@
     font-size: 11.5px;
     padding: 3px 9px;
     border-radius: 6px;
-    background: rgba(120, 24, 32, 0.08);
-    border: 1px solid rgba(120, 24, 32, 0.25);
-    color: rgba(40, 16, 20, 0.85);
+    background: rgba(var(--theme-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
+    color: rgba(var(--theme-text-rgb), 0.85);
     min-width: 90px;
     text-align: center;
   }
-  .shortcut-row kbd.empty { color: rgba(40, 16, 20, 0.4); font-style: italic; }
+  .shortcut-row kbd.empty { color: rgba(var(--theme-text-rgb), 0.4); font-style: italic; }
   .shortcut-row kbd.recording { background: rgba(196, 138, 46, 0.2); border-color: rgba(196, 138, 46, 0.7); color: rgba(150, 96, 20, 0.95); }
   .shortcut-row .shortcut-error { font-size: 11px; color: rgba(178, 44, 56, 0.9); margin-left: 4px; }
   .shortcut-error { font-size: 11px; color: rgba(178, 44, 56, 0.9); }
 
   .pet-card { display: flex; flex-direction: column; gap: 8px; }
   .pet-card .pet-name { font-size: 14px; font-weight: 700; }
-  .pet-card .pet-id { font-size: 10.5px; color: rgba(40, 16, 20, 0.5); }
+  .pet-card .pet-id { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.5); }
   .pet-card .pet-badge {
     align-self: flex-start;
     font-size: 10px;
@@ -311,60 +391,126 @@
   .pet-card .pet-actions { display: flex; gap: 8px; margin-top: 4px; }
 
   .memory-category-group { margin-bottom: 18px; }
-  .memory-category-title { font-size: 12px; font-weight: 700; color: rgba(120, 24, 32, 0.85); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
-  .memory-category-badge { font-size: 10px; padding: 1px 7px; border-radius: 8px; background: rgba(120, 24, 32, 0.1); }
-  .memory-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: rgba(120, 24, 32, 0.04); margin-bottom: 6px; }
+  .memory-category-title { font-size: 12px; font-weight: 700; color: rgba(var(--theme-accent-rgb), 0.85); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .memory-category-badge { font-size: 10px; padding: 1px 7px; border-radius: 8px; background: rgba(var(--theme-accent-rgb), 0.1); }
+  .memory-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: rgba(var(--theme-accent-rgb), 0.04); margin-bottom: 6px; }
   .memory-item .memory-importance { flex: 0 0 auto; letter-spacing: 1px; color: rgba(196, 138, 46, 0.9); font-size: 11px; }
   .memory-item .memory-text { flex: 1; font-size: 12.5px; }
   .memory-source-badge { flex: 0 0 auto; font-size: 10px; padding: 2px 8px; border-radius: 8px; background: rgba(74, 127, 196, 0.12); color: rgba(74, 127, 196, 0.95); white-space: nowrap; }
   .memory-source-badge.uncertain { background: rgba(196, 138, 46, 0.15); color: rgba(196, 138, 46, 0.95); }
   .memory-source-badge.reflection { background: rgba(138, 74, 196, 0.15); color: rgba(138, 74, 196, 0.95); font-weight: 600; }
-  .memory-item .memory-time { font-size: 10px; color: rgba(40, 16, 20, 0.5); white-space: nowrap; }
+  .memory-item .memory-time { font-size: 10px; color: rgba(var(--theme-text-rgb), 0.5); white-space: nowrap; }
   .memory-history-panel {
     display: flex;
     flex-direction: column;
     gap: 5px;
     margin: 4px 0 8px 12px;
     padding: 8px 10px;
-    border-left: 2px solid rgba(120, 24, 32, 0.15);
-    background: rgba(120, 24, 32, 0.03);
+    border-left: 2px solid rgba(var(--theme-accent-rgb), 0.15);
+    background: rgba(var(--theme-accent-rgb), 0.03);
     border-radius: 0 6px 6px 0;
   }
   .memory-history-item { display: flex; gap: 8px; font-size: 11px; }
-  .memory-history-time { color: rgba(40, 16, 20, 0.45); white-space: nowrap; flex: 0 0 auto; }
-  .memory-history-text { color: rgba(40, 16, 20, 0.7); }
+  .memory-history-time { color: rgba(var(--theme-text-rgb), 0.45); white-space: nowrap; flex: 0 0 auto; }
+  .memory-history-text { color: rgba(var(--theme-text-rgb), 0.7); }
 
-  .task-item-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(40, 16, 20, 0.7); margin-top: 3px; }
+  .task-item-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(var(--theme-text-rgb), 0.7); margin-top: 3px; }
 
-  .chat-tab-msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; max-width: 85%; word-wrap: break-word; white-space: pre-wrap; }
-  .chat-tab-msg.user { background: rgba(120, 24, 32, 0.12); margin-left: auto; text-align: right; }
-  .chat-tab-msg.assistant { background: rgba(0, 0, 0, 0.05); margin-right: auto; }
-  .chat-tab-msg.error { background: rgba(200, 40, 40, 0.15); color: rgba(160, 20, 20, 0.9); margin-right: auto; font-size: 13px; }
+  /* NetEase-style chat bubbles: generous rounding with one flattened
+     corner on the "speaking" side (a classic speech-bubble tail cue
+     without an actual triangle/pseudo-element), solid accent-colour
+     background for the user's own messages (readable in white regardless
+     of which theme/accent is active), a soft neutral surface for the
+     assistant's that itself flips light/dark via --theme-assistant-
+     bubble-rgb so it still reads as "raised" against a dark theme's dark
+     background instead of vanishing into it. */
+  .chat-tab-msg { margin-bottom: 12px; padding: 10px 14px; border-radius: 18px; max-width: 78%; word-wrap: break-word; white-space: pre-wrap; line-height: 1.55; font-size: 13px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
+  .chat-tab-msg.user { background: rgb(var(--theme-accent-rgb)); color: #fff; margin-left: auto; border-bottom-right-radius: 4px; }
+  .chat-tab-msg.assistant { background: rgba(var(--theme-assistant-bubble-rgb), 0.06); color: rgba(var(--theme-text-rgb), 0.92); margin-right: auto; border-bottom-left-radius: 4px; }
+  .chat-tab-msg.error { background: rgba(200, 40, 40, 0.15); color: rgba(160, 20, 20, 0.9); margin-right: auto; font-size: 12.5px; border-radius: 12px; box-shadow: none; }
+  .chat-tab-scroll {
+    max-height: 400px;
+    overflow-y: auto;
+    border-radius: 16px;
+    padding: 14px;
+    margin: 10px 0 12px;
+    background: rgba(var(--skin-rgb), calc(var(--panel-alpha) * 0.35));
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.12);
+  }
+  .chat-tab-input-row { display: flex; gap: 8px; align-items: center; }
+  .chat-tab-input {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+    /* color-mix against the theme's own base tone rather than a fixed
+       white -- reads as a lighter "raised" surface on a light theme and
+       still reads as raised (not blown-out white) on a dark one, no
+       separate dark-mode branch needed. */
+    background: color-mix(in srgb, rgb(var(--skin-rgb)) 65%, white 35%);
+    font-size: 13px;
+    font-family: inherit;
+    color: rgba(var(--theme-text-rgb), 0.95);
+  }
+  .chat-tab-input:focus { outline: none; border-color: rgba(var(--theme-accent-rgb), 0.55); }
+  .chat-tab-icon-btn {
+    flex: 0 0 auto;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+    background: color-mix(in srgb, rgb(var(--skin-rgb)) 65%, white 35%);
+    cursor: pointer;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .chat-tab-icon-btn:hover { background: rgba(var(--theme-accent-rgb), 0.15); }
+  .chat-tab-shot-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 7px 12px;
+    border-radius: 14px;
+    background: rgba(196, 138, 46, 0.15);
+    border: 1px solid rgba(196, 138, 46, 0.4);
+    font-size: 11.5px;
+    color: rgba(var(--theme-text-rgb), 0.85);
+  }
+  .chat-tab-shot-chip button { border: none; background: transparent; cursor: pointer; margin-left: auto; color: rgba(var(--theme-accent-rgb), 0.85); font-size: 13px; }
   #chatTabVoiceBtn.listening { background: rgba(255, 100, 100, 0.3); border-color: rgba(255, 100, 100, 0.8); animation: chatTabPulse 0.5s infinite; }
   #chatTabVoiceBtn.recognizing { background: rgba(196, 138, 46, 0.25); border-color: rgba(196, 138, 46, 0.6); }
   #chatTabCallModeBtn.active { background: rgba(80, 160, 100, 0.3); border-color: rgba(80, 160, 100, 0.8); }
   @keyframes chatTabPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   .chat-tab-conv-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
-  .chat-tab-conv-item:hover { background: rgba(120, 24, 32, 0.08); }
-  .chat-tab-conv-item.active { background: rgba(120, 24, 32, 0.14); }
+  .chat-tab-conv-item:hover { background: rgba(var(--theme-accent-rgb), 0.08); }
+  .chat-tab-conv-item.active { background: rgba(var(--theme-accent-rgb), 0.14); }
   .chat-tab-conv-item-text { flex: 1; min-width: 0; }
-  .chat-tab-conv-item-title { font-size: 12.5px; font-weight: 600; color: rgba(40, 16, 20, 0.92); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chat-tab-conv-item-sub { font-size: 11px; color: rgba(40, 16, 20, 0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chat-tab-conv-item-del { border: none; background: transparent; color: rgba(40, 16, 20, 0.4); font-size: 12px; cursor: pointer; padding: 2px 5px; flex: 0 0 auto; }
-  .chat-tab-conv-item-del:hover { color: rgba(120, 24, 32, 0.9); }
-  .chat-tab-conv-empty { text-align: center; font-size: 12px; color: rgba(40, 16, 20, 0.5); padding: 20px 0; }
+  .chat-tab-conv-item-title { font-size: 12.5px; font-weight: 600; color: rgba(var(--theme-text-rgb), 0.92); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-tab-conv-item-sub { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-tab-conv-item-del { border: none; background: transparent; color: rgba(var(--theme-text-rgb), 0.4); font-size: 12px; cursor: pointer; padding: 2px 5px; flex: 0 0 auto; }
+  .chat-tab-conv-item-del:hover { color: rgba(var(--theme-accent-rgb), 0.9); }
+  .chat-tab-conv-empty { text-align: center; font-size: 12px; color: rgba(var(--theme-text-rgb), 0.5); padding: 20px 0; }
 </style>
 </head>
 <body>
+<div id="bgLayer"></div>
 <div id="sidebar">
   <h1>桌面宠物控制面板</h1>
   <ul id="navList">
     <li><button class="nav-btn active" data-section="overview">概览</button></li>
     <li><button class="nav-btn" data-section="chat">💬 聊天</button></li>
     <li class="nav-group-label">设置</li>
+    <li><button class="nav-btn" data-section="appearance">外观</button></li>
+    <li><button class="nav-btn" data-section="voicechat">语音与聊天</button></li>
     <li><button class="nav-btn" data-section="models">模型</button></li>
     <li><button class="nav-btn" data-section="automation">自动化</button></li>
-    <li><button class="nav-btn" data-section="toggles">功能开关</button></li>
+    <li><button class="nav-btn" data-section="toggles">互动细节</button></li>
     <li><button class="nav-btn" data-section="shortcuts">快捷键</button></li>
     <li class="nav-group-label">形象与手势</li>
     <li><button class="nav-btn" data-section="characters">形象</button></li>
@@ -405,21 +551,145 @@
           <button id="chatTabNewBtn" class="btn" title="新对话" aria-label="新对话" style="padding: 4px 10px;">✚</button>
         </div>
       </div>
-      <div id="chatTabMessages" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 12px; margin: 10px 0 12px; background: rgba(255,255,255,0.4);"></div>
-      <div id="chatTabConvList" style="display: none; max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 6px 8px; margin: 10px 0 12px; background: rgba(255,255,255,0.4);"></div>
-      <div id="chatTabScreenshotChip" style="display: none; align-items: center; gap: 6px; margin-bottom: 8px; padding: 5px 9px; border-radius: 8px; background: rgba(196,138,46,0.15); border: 1px solid rgba(196,138,46,0.4); font-size: 11px; color: rgba(40,16,20,0.85);">
-        📷 已附上截图，问点什么吧 <button id="chatTabScreenshotChipClear" style="border:none; background:transparent; cursor:pointer; margin-left:auto; color: rgba(120,24,32,0.8);">✕</button>
+      <div id="chatTabMessages" class="chat-tab-scroll"></div>
+      <div id="chatTabConvList" class="chat-tab-scroll" style="display: none;"></div>
+      <div id="chatTabScreenshotChip" class="chat-tab-shot-chip" style="display: none;">
+        📷 已附上截图，问点什么吧 <button id="chatTabScreenshotChipClear">✕</button>
       </div>
-      <div style="display: flex; gap: 6px; align-items: center;">
-        <button id="chatTabScreenshotBtn" title="截屏问他" aria-label="截屏问他" style="flex: 0 0 auto; border: 1px solid rgba(120,24,32,0.35); border-radius: 8px; background: rgba(255,255,255,0.7); font-size: 13px; padding: 8px 10px; cursor: pointer;">📸</button>
-        <input type="text" id="chatTabInput" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false" style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(120,24,32,0.2);">
-        <button id="chatTabVoiceBtn" title="点一下开始/停止说话，或按住说话" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">🎤</button>
-        <button id="chatTabCallModeBtn" title="持续监听模式：开启后不用按按钮，说完一句自动识别，再说下一句" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">📞</button>
+      <div class="chat-tab-input-row">
+        <button id="chatTabScreenshotBtn" class="chat-tab-icon-btn" title="截屏问他" aria-label="截屏问他">📸</button>
+        <input type="text" id="chatTabInput" class="chat-tab-input" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false">
+        <button id="chatTabVoiceBtn" class="chat-tab-icon-btn" title="点一下开始/停止说话，或按住说话">🎤</button>
+        <button id="chatTabCallModeBtn" class="chat-tab-icon-btn" title="持续监听模式：开启后不用按按钮，说完一句自动识别，再说下一句">📞</button>
         <button id="chatTabSend" class="btn">发送</button>
       </div>
     </div>
+  </section>
 
-    <!-- 下面这两个 panel-block 是从"功能开关"分页迁移过来的语音设置和聊天设置 -->
+  <section class="section" id="section-appearance">
+    <h2>外观</h2>
+    <p class="subtitle">控制面板和桌宠身上的颜色、透明度、缩放、提示音——纯粹跟"好不好看/吵不吵"有关的设置都在这</p>
+    <div class="panel-block">
+      <h3>控制面板外观</h3>
+      <div class="field-row">
+        <label for="dashThemePreset">配色方案</label>
+        <select id="dashThemePreset" style="flex:1; max-width:240px;">
+          <option value="classic">经典（暖白 + 酒红）</option>
+          <option value="dark-red">暗夜红（深色毛玻璃）</option>
+          <option value="dark-pink">暗夜粉（深色毛玻璃）</option>
+          <option value="light-pink">浅粉简约</option>
+          <option value="cyber-green">黑绿赛博（荧光终端绿）</option>
+          <option value="liquid-glass">苹果液晶玻璃（浅灰 + 蓝）</option>
+          <optgroup label="我的主题" id="dashThemeCustomGroup"></optgroup>
+        </select>
+      </div>
+      <p class="hint" style="margin-top:0;">选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。</p>
+      <div class="field-row">
+        <label for="dashThemeCustomName">主题名字</label>
+        <input type="text" id="dashThemeCustomName" placeholder="给当前这套外观起个名字" style="flex:1; max-width:200px;" maxlength="40">
+        <button class="btn" id="dashThemeSaveBtn">另存为新主题</button>
+      </div>
+      <div class="field-row" id="dashThemeCustomActionsRow" style="display:none;">
+        <button class="btn" id="dashThemeRenameBtn">重命名当前主题</button>
+        <button class="btn" id="dashThemeDeleteBtn">删除当前主题</button>
+      </div>
+      <p class="hint" style="margin-top:0;">把当前这套配色方案 + 强调色/文字色/背景/透明度/缩放整体存成一个新主题，之后能在上面下拉框里直接选出来；重命名/删除只对你自己存的主题有效，内置的几个方案改不了。</p>
+      <div class="field-row">
+        <label for="dashWindowOpacity">整体透明度</label>
+        <input type="range" id="dashWindowOpacity" min="0.3" max="1" step="0.02" style="flex:1; max-width:240px;">
+        <span id="dashWindowOpacityValue" class="hint" style="margin:0;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">拖动即可实时调整整个控制面板窗口（背景 + 侧边栏 + 设置模块全部一起）的真实透明度；数值越低，桌面透得越明显。</p>
+      <div class="field-row">
+        <label for="dashModuleAlpha">侧边栏 / 模块透明度</label>
+        <input type="range" id="dashModuleAlpha" min="0.3" max="1" step="0.02" style="flex:1; max-width:240px;">
+        <span id="dashModuleAlphaValue" class="hint" style="margin:0;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">只调左侧栏和每个设置模块自己的磨砂玻璃浓淡，跟上面的「整体透明度」和「背景」都是分开的三层，互不影响。</p>
+      <div class="field-row">
+        <label for="dashUiScale">界面缩放（文字/按钮大小）</label>
+        <input type="range" id="dashUiScale" min="0.85" max="1.3" step="0.05" style="flex:1; max-width:240px;">
+        <span id="dashUiScaleValue" class="hint" style="margin:0;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">看不清小字或者觉得按钮太大都可以调这个，跟系统缩放无关，只影响这个应用自己。</p>
+      <div class="field-row">
+        <label for="dashGraphFollowTheme">「记忆」页的关系图配色跟随主题</label>
+        <input type="checkbox" id="dashGraphFollowTheme">
+      </div>
+      <p class="hint" style="margin-top:0;">关掉的话关系图始终用经典配色（暖白底 + 原来那几个节点颜色），不受这里选的配色方案影响。</p>
+    </div>
+    <div class="panel-block">
+      <h3>背景</h3>
+      <div class="field-row">
+        <label for="dashBgColor">背景颜色</label>
+        <input type="color" id="dashBgColor" style="width:48px; height:32px; padding:0; border:1px solid rgba(120,24,32,0.3); border-radius:6px; cursor:pointer;">
+        <button class="btn" id="dashBgColorReset">恢复默认</button>
+      </div>
+      <div class="field-row">
+        <label for="dashBgAlpha">背景透明度</label>
+        <input type="range" id="dashBgAlpha" min="0.15" max="1" step="0.05" style="flex:1; max-width:240px;">
+        <span id="dashBgAlphaValue" class="hint" style="margin:0;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">这里改的是控制面板最底层的背景，跟左侧栏、各设置模块的磨砂玻璃颜色是分开的——那两个不受这里影响，还是只认「桌宠主题色」。</p>
+      <div class="sound-file-row">
+        <span class="sound-file-label">背景图片</span>
+        <span class="sound-file-current" id="bgImageName">（未设置，用背景颜色）</span>
+        <button class="btn" id="bgImagePick">选择图片</button>
+        <button class="btn" id="bgImageClear">清除</button>
+      </div>
+      <p class="hint" style="margin-top:0;">设置了图片就会铺满整个背景层、替代背景颜色；上面的透明度滑块同样能让图片变淡，方便看清前面的文字。</p>
+    </div>
+    <div class="panel-block">
+      <h3>桌宠主题色</h3>
+      <div class="field-row">
+        <label for="dashSkinColor">气泡/按钮链/徽章的底色</label>
+        <input type="color" id="dashSkinColor" style="width:48px; height:32px; padding:0; border:1px solid rgba(120,24,32,0.3); border-radius:6px; cursor:pointer;">
+        <button class="btn" id="dashSkinColorReset">恢复默认</button>
+      </div>
+      <p class="hint" style="margin-top:0;">改的是桌宠身上所有 UI（对话气泡、选项扇形按钮链、用量徽章卡片）共用的底色，选完立刻生效；黑红描边和文字颜色不受影响。</p>
+      <div class="field-row">
+        <label for="dashAccentColor">强调色（按钮 / 自己发的消息气泡）</label>
+        <input type="color" id="dashAccentColor" style="width:48px; height:32px; padding:0; border:1px solid rgba(120,24,32,0.3); border-radius:6px; cursor:pointer;">
+        <button class="btn" id="dashAccentColorReset">恢复默认</button>
+      </div>
+      <div class="field-row">
+        <label for="dashTextColor">文字色</label>
+        <input type="color" id="dashTextColor" style="width:48px; height:32px; padding:0; border:1px solid rgba(120,24,32,0.3); border-radius:6px; cursor:pointer;">
+        <button class="btn" id="dashTextColorReset">恢复默认</button>
+      </div>
+      <p class="hint" style="margin-top:0;">这两个是在「配色方案」基础上单独微调，改完立刻生效并记住；点「恢复默认」会退回当前配色方案自带的颜色，不影响皮肤色和方案本身。</p>
+    </div>
+    <div class="panel-block">
+      <h3>通知音效</h3>
+      <div class="field-row">
+        <label for="dashSoundsEnabled">开启（番茄钟结束 / AI 任务需要你了 / 出错 / 摸它 时响一声短音）</label>
+        <input type="checkbox" id="dashSoundsEnabled">
+      </div>
+      <p class="hint" style="margin:8px 0;">不选文件就用内置的合成音效；选了就换成你自己的音频文件。</p>
+      <div class="sound-file-row">
+        <span class="sound-file-label">番茄钟完成</span>
+        <span class="sound-file-current" id="soundFilePomodoroName">（内置音效）</span>
+        <button class="btn" id="soundFilePomodoroPick">选择文件</button>
+        <button class="btn" id="soundFilePomodoroClear">清除</button>
+      </div>
+      <div class="sound-file-row">
+        <span class="sound-file-label">任务需要你 / 出错</span>
+        <span class="sound-file-current" id="soundFileAlertName">（内置音效）</span>
+        <button class="btn" id="soundFileAlertPick">选择文件</button>
+        <button class="btn" id="soundFileAlertClear">清除</button>
+      </div>
+      <div class="sound-file-row">
+        <span class="sound-file-label">摸它 / 手势</span>
+        <span class="sound-file-current" id="soundFilePetName">（内置音效）</span>
+        <button class="btn" id="soundFilePetPick">选择文件</button>
+        <button class="btn" id="soundFilePetClear">清除</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="section-voicechat">
+    <h2>语音与聊天</h2>
+    <p class="subtitle">语音识别引擎、朗读音色、推送通话快捷键，还有聊天用哪个模型——都在这一页</p>
     <div class="panel-block">
       <h3>🎤 语音设置</h3>
 
@@ -642,26 +912,8 @@
   </section>
 
   <section class="section" id="section-toggles">
-    <h2>功能开关</h2>
-    <p class="subtitle">屏幕提示/干活监督/每日总结的开关和频率见「自动化」页，这里是其余功能和细节参数</p>
-    <div class="panel-block">
-      <h3>控制面板外观</h3>
-      <div class="field-row">
-        <label for="dashPanelAlpha">面板透明度</label>
-        <input type="range" id="dashPanelAlpha" min="0.3" max="1" step="0.02" style="flex:1; max-width:240px;">
-        <span id="dashPanelAlphaValue" class="hint" style="margin:0;"></span>
-      </div>
-      <p class="hint" style="margin-top:0;">拖动即可实时调整整个控制面板窗口（包括底板）的真实透明度；数值越低，桌面透得越明显。</p>
-    </div>
-    <div class="panel-block">
-      <h3>桌宠主题色</h3>
-      <div class="field-row">
-        <label for="dashSkinColor">气泡/按钮链/徽章的底色</label>
-        <input type="color" id="dashSkinColor" style="width:48px; height:32px; padding:0; border:1px solid rgba(120,24,32,0.3); border-radius:6px; cursor:pointer;">
-        <button class="btn" id="dashSkinColorReset">恢复默认</button>
-      </div>
-      <p class="hint" style="margin-top:0;">改的是桌宠身上所有 UI（对话气泡、选项扇形按钮链、用量徽章卡片）共用的底色，选完立刻生效；黑红描边和文字颜色不受影响。</p>
-    </div>
+    <h2>互动细节</h2>
+    <p class="subtitle">跟桌宠日常互动有关的零散小开关；外观/颜色见「外观」页，语音/聊天设置见「语音与聊天」页，定期自动执行的频率见「自动化」页</p>
     <div class="panel-block">
       <h3>屏幕提示（截屏 + AI 锐评）</h3>
       <p class="hint" style="margin-top:0;">总开关和截屏频率统一挪到了「自动化」页管理，这里只留显示相关的设置。</p>
@@ -672,39 +924,6 @@
       <div class="field-row">
         <label for="dashTipDisplayStacked">堆叠显示（同时显示多条提示，而不是互相覆盖）</label>
         <input type="checkbox" id="dashTipDisplayStacked">
-      </div>
-    </div>
-    <div class="panel-block">
-      <h3>通知音效</h3>
-      <div class="field-row">
-        <label for="dashSoundsEnabled">开启（番茄钟结束 / AI 任务需要你了 / 出错 / 摸它 时响一声短音）</label>
-        <input type="checkbox" id="dashSoundsEnabled">
-      </div>
-      <p class="hint" style="margin:8px 0;">不选文件就用内置的合成音效；选了就换成你自己的音频文件。</p>
-      <div class="sound-file-row">
-        <span class="sound-file-label">番茄钟完成</span>
-        <span class="sound-file-current" id="soundFilePomodoroName">（内置音效）</span>
-        <button class="btn" id="soundFilePomodoroPick">选择文件</button>
-        <button class="btn" id="soundFilePomodoroClear">清除</button>
-      </div>
-      <div class="sound-file-row">
-        <span class="sound-file-label">任务需要你 / 出错</span>
-        <span class="sound-file-current" id="soundFileAlertName">（内置音效）</span>
-        <button class="btn" id="soundFileAlertPick">选择文件</button>
-        <button class="btn" id="soundFileAlertClear">清除</button>
-      </div>
-      <div class="sound-file-row">
-        <span class="sound-file-label">摸它 / 手势</span>
-        <span class="sound-file-current" id="soundFilePetName">（内置音效）</span>
-        <button class="btn" id="soundFilePetPick">选择文件</button>
-        <button class="btn" id="soundFilePetClear">清除</button>
-      </div>
-    </div>
-    <div class="panel-block">
-      <h3>聊天</h3>
-      <div class="field-row">
-        <label for="dashChatEnabled">跟他聊天功能</label>
-        <input type="checkbox" id="dashChatEnabled">
       </div>
     </div>
     <div class="panel-block">

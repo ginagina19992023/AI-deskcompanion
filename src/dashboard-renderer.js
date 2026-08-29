@@ -313,21 +313,87 @@ const dashDailySummaryIntervalEl = document.getElementById('autoDailySummaryInte
 const dashScreenTipsAutoIntervalEl = document.getElementById('autoScreenTipsInterval');
 const dashStatusLightsEnabledEl = document.getElementById('dashStatusLightsEnabled');
 const dashContextRingEnabledEl = document.getElementById('dashContextRingEnabled');
-const dashPanelAlphaEl = document.getElementById('dashPanelAlpha');
-const dashPanelAlphaValueEl = document.getElementById('dashPanelAlphaValue');
-
-function applyPanelAlpha(v) {
-  document.documentElement.style.setProperty('--panel-alpha', v);
-  dashPanelAlphaValueEl.textContent = `${Math.round(v * 100)}%`;
+// Three independent transparency layers: this one is the *real* native
+// window opacity (desktop shows through background + sidebar + modules
+// together) -- separate from --panel-alpha (sidebar/module glass, below)
+// and from --bg-alpha (the background layer, see makeColorOverridePicker
+// section further down). Used to also double as the module-alpha control
+// until the user pointed out those are two different things.
+const dashWindowOpacityEl = document.getElementById('dashWindowOpacity');
+const dashWindowOpacityValueEl = document.getElementById('dashWindowOpacityValue');
+function applyWindowOpacityDisplay(v) {
+  dashWindowOpacityValueEl.textContent = `${Math.round(v * 100)}%`;
 }
 // Live preview while dragging (no disk write on every pixel of movement),
 // persisted once the user actually lets go of the slider.
-dashPanelAlphaEl.addEventListener('input', () => {
-  const value = Number(dashPanelAlphaEl.value);
-  applyPanelAlpha(value);
+dashWindowOpacityEl.addEventListener('input', () => {
+  const value = Number(dashWindowOpacityEl.value);
+  applyWindowOpacityDisplay(value);
   window.dash.previewOpacity(value);
 });
-dashPanelAlphaEl.addEventListener('change', () => window.dash.setSetting('dashboardPanelAlpha', Number(dashPanelAlphaEl.value)));
+dashWindowOpacityEl.addEventListener('change', () => window.dash.setSetting('dashboardPanelAlpha', Number(dashWindowOpacityEl.value)));
+
+// Sidebar/module glass alpha -- purely the --panel-alpha CSS variable
+// (rgba(var(--skin-rgb), var(--panel-alpha)) throughout dashboard.html),
+// no window-opacity effect at all.
+const dashModuleAlphaEl = document.getElementById('dashModuleAlpha');
+const dashModuleAlphaValueEl = document.getElementById('dashModuleAlphaValue');
+function applyModuleAlpha(v) {
+  document.documentElement.style.setProperty('--panel-alpha', v);
+  dashModuleAlphaValueEl.textContent = `${Math.round(v * 100)}%`;
+}
+dashModuleAlphaEl.addEventListener('input', () => applyModuleAlpha(Number(dashModuleAlphaEl.value)));
+dashModuleAlphaEl.addEventListener('change', () => window.dash.setSetting('moduleAlpha', Number(dashModuleAlphaEl.value)));
+
+// Theme preset: sets/clears the [data-theme] attribute the CSS presets in
+// dashboard.html's <style> block key off of -- 'classic' has no preset
+// block (it's what :root's own defaults already are), so it's expressed
+// as *removing* the attribute rather than a "classic" preset block that
+// would just duplicate those same default values.
+const dashThemePresetEl = document.getElementById('dashThemePreset');
+const dashThemeCustomGroupEl = document.getElementById('dashThemeCustomGroup');
+const dashThemeCustomNameEl = document.getElementById('dashThemeCustomName');
+const dashThemeCustomActionsRowEl = document.getElementById('dashThemeCustomActionsRow');
+const dashThemeSaveBtnEl = document.getElementById('dashThemeSaveBtn');
+const dashThemeRenameBtnEl = document.getElementById('dashThemeRenameBtn');
+const dashThemeDeleteBtnEl = document.getElementById('dashThemeDeleteBtn');
+let customThemesCache = [];
+
+function applyThemePreset(preset) {
+  if (preset && preset !== 'classic') document.documentElement.setAttribute('data-theme', preset);
+  else document.documentElement.removeAttribute('data-theme');
+}
+// Custom-theme <option>s carry a "custom:<id>" value so this handler can
+// tell them apart from the six built-in preset names without needing a
+// second <select> or extra markup per entry.
+dashThemePresetEl.addEventListener('change', () => {
+  const value = dashThemePresetEl.value;
+  if (value.startsWith('custom:')) {
+    applyCustomThemeSelection(value.slice('custom:'.length));
+    return;
+  }
+  applyThemePreset(value);
+  window.dash.setSetting('themePreset', value);
+  // The accent/text pickers below fall back to whatever the *new* preset
+  // defines whenever the user hasn't pinned a custom override -- refresh
+  // their swatches so they don't keep showing the old preset's colour.
+  refreshColorOverrideDisplays();
+  dashThemeCustomNameEl.value = '';
+  dashThemeCustomActionsRowEl.style.display = 'none';
+  if (graphRunning) drawGraph();
+});
+
+// UI scale: `zoom` on #main/#sidebar (see dashboard.html), not a
+// font-size multiplier -- scales spacing/icons/buttons along with text
+// instead of just growing text inside unchanged-size boxes.
+const dashUiScaleEl = document.getElementById('dashUiScale');
+const dashUiScaleValueEl = document.getElementById('dashUiScaleValue');
+function applyUiScale(v) {
+  document.documentElement.style.setProperty('--ui-scale', v);
+  dashUiScaleValueEl.textContent = `${Math.round(v * 100)}%`;
+}
+dashUiScaleEl.addEventListener('input', () => applyUiScale(Number(dashUiScaleEl.value)));
+dashUiScaleEl.addEventListener('change', () => window.dash.setSetting('uiScale', Number(dashUiScaleEl.value)));
 
 const DEFAULT_SKIN_COLOR = '#faf0e4';
 const dashSkinColorEl = document.getElementById('dashSkinColor');
@@ -336,6 +402,189 @@ dashSkinColorEl.addEventListener('input', () => window.dash.setSetting('petSkinC
 dashSkinColorResetEl.addEventListener('click', () => {
   dashSkinColorEl.value = DEFAULT_SKIN_COLOR;
   window.dash.setSetting('petSkinColor', DEFAULT_SKIN_COLOR);
+});
+
+// Accent/text colour fine-tuning on top of whatever preset is active.
+// Unlike skin colour above (always a fixed value), these two are
+// nullable overrides: an empty string means "no override, follow the
+// preset", so switching presets keeps working sensibly for anyone who
+// hasn't touched these. Applied to *this* document too (not just pushed
+// to the pet window) so the dashboard's own accent-coloured buttons/chat
+// bubbles preview the change immediately, the same way the theme preset
+// picker above already does locally via the data-theme attribute.
+function hexToRgbTriple(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex ?? '');
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}`;
+}
+function computedRgbHex(varName) {
+  const triple = getComputedStyle(document.documentElement).getPropertyValue(varName);
+  const parts = triple.split(',').map((s) => parseInt(s.trim(), 10));
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return '#000000';
+  return '#' + parts.map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')).join('');
+}
+
+function makeColorOverridePicker(varName, settingName, inputEl, resetEl) {
+  let overridden = false;
+  function apply(hex) {
+    const triple = hexToRgbTriple(hex);
+    if (triple) document.documentElement.style.setProperty(varName, triple);
+    else document.documentElement.style.removeProperty(varName);
+  }
+  function refreshDisplay() {
+    if (!overridden) inputEl.value = computedRgbHex(varName);
+  }
+  inputEl.addEventListener('input', () => {
+    overridden = true;
+    apply(inputEl.value);
+    window.dash.setSetting(settingName, inputEl.value);
+  });
+  resetEl.addEventListener('click', () => {
+    overridden = false;
+    apply('');
+    refreshDisplay();
+    window.dash.setSetting(settingName, '');
+  });
+  return {
+    initFrom(hex) {
+      overridden = !!hex;
+      apply(hex ?? '');
+      refreshDisplay();
+    },
+    refreshDisplay,
+  };
+}
+const accentColorPicker = makeColorOverridePicker(
+  '--theme-accent-rgb', 'accentColor',
+  document.getElementById('dashAccentColor'), document.getElementById('dashAccentColorReset'),
+);
+const textColorPicker = makeColorOverridePicker(
+  '--theme-text-rgb', 'textColor',
+  document.getElementById('dashTextColor'), document.getElementById('dashTextColorReset'),
+);
+const bgColorPicker = makeColorOverridePicker(
+  '--bg-rgb', 'backgroundColor',
+  document.getElementById('dashBgColor'), document.getElementById('dashBgColorReset'),
+);
+function refreshColorOverrideDisplays() {
+  accentColorPicker.refreshDisplay();
+  textColorPicker.refreshDisplay();
+  bgColorPicker.refreshDisplay();
+}
+
+// Background transparency -- separate from --panel-alpha (sidebar/module
+// glass) and from the native window opacity slider; only fades #bgLayer.
+const dashBgAlphaEl = document.getElementById('dashBgAlpha');
+const dashBgAlphaValueEl = document.getElementById('dashBgAlphaValue');
+function applyBgAlpha(v) {
+  document.documentElement.style.setProperty('--bg-alpha', v);
+  dashBgAlphaValueEl.textContent = `${Math.round(v * 100)}%`;
+}
+dashBgAlphaEl.addEventListener('input', () => applyBgAlpha(Number(dashBgAlphaEl.value)));
+dashBgAlphaEl.addEventListener('change', () => window.dash.setSetting('backgroundAlpha', Number(dashBgAlphaEl.value)));
+
+// Background image -- an inline background-image on #bgLayer fully
+// replaces its CSS gradient (background-size/position stay in effect
+// either way); clearing it falls back to the gradient/colour above.
+const bgLayerEl = document.getElementById('bgLayer');
+const bgImageNameEl = document.getElementById('bgImageName');
+const bgImagePickEl = document.getElementById('bgImagePick');
+const bgImageClearEl = document.getElementById('bgImageClear');
+function applyBgImage(url) {
+  if (url) bgLayerEl.style.backgroundImage = `url("${url}")`;
+  else bgLayerEl.style.removeProperty('background-image');
+}
+bgImagePickEl.addEventListener('click', async () => {
+  const res = await window.dash.pickBackgroundImage();
+  if (!res.ok) return;
+  applyBgImage(res.backgroundImageUrl);
+  bgImageNameEl.textContent = `已选择：${res.backgroundImageName}`;
+});
+bgImageClearEl.addEventListener('click', async () => {
+  await window.dash.clearBackgroundImage();
+  applyBgImage(null);
+  bgImageNameEl.textContent = '（未设置，用背景颜色）';
+});
+
+// Custom themes: a full snapshot of every appearance field (preset +
+// skin/accent/text/background colours + all three alpha layers + uiScale)
+// saved under a name, applied as one batch instead of the user re-doing
+// each picker by hand. Rebuilt into <optgroup id="dashThemeCustomGroup">
+// whenever the list changes; declared with `function` (hoisted) so the
+// dashThemePresetEl change handler above -- defined earlier in the file --
+// can call it.
+function rebuildCustomThemeOptions() {
+  dashThemeCustomGroupEl.replaceChildren();
+  for (const entry of customThemesCache) {
+    const opt = document.createElement('option');
+    opt.value = `custom:${entry.id}`;
+    opt.textContent = entry.name;
+    dashThemeCustomGroupEl.appendChild(opt);
+  }
+}
+
+function applyCustomThemeSelection(id) {
+  const entry = customThemesCache.find((p) => p.id === id);
+  if (!entry) return;
+  applyThemePreset(entry.preset ?? 'classic');
+  dashSkinColorEl.value = entry.skinColor ?? DEFAULT_SKIN_COLOR;
+  accentColorPicker.initFrom(entry.accentColor);
+  textColorPicker.initFrom(entry.textColor);
+  bgColorPicker.initFrom(entry.backgroundColor);
+  dashBgAlphaEl.value = String(entry.backgroundAlpha ?? 1);
+  applyBgAlpha(Number(dashBgAlphaEl.value));
+  dashModuleAlphaEl.value = String(entry.moduleAlpha ?? 0.92);
+  applyModuleAlpha(Number(dashModuleAlphaEl.value));
+  dashUiScaleEl.value = String(entry.uiScale ?? 1);
+  applyUiScale(Number(dashUiScaleEl.value));
+  dashThemeCustomNameEl.value = entry.name;
+  dashThemeCustomActionsRowEl.style.display = 'flex';
+  if (graphRunning) drawGraph();
+  window.dash.applyCustomTheme(id).then((res) => {
+    if (res.ok) {
+      applyBgImage(res.backgroundImageUrl);
+      bgImageNameEl.textContent = res.backgroundImageName ? `已选择：${res.backgroundImageName}` : '（未设置，用背景颜色）';
+    }
+  });
+}
+
+dashThemeSaveBtnEl.addEventListener('click', async () => {
+  const name = dashThemeCustomNameEl.value.trim();
+  if (!name) return;
+  const res = await window.dash.saveCustomTheme(name);
+  if (!res.ok) return;
+  customThemesCache = res.customPresets;
+  rebuildCustomThemeOptions();
+  dashThemePresetEl.value = `custom:${res.id}`;
+  dashThemeCustomActionsRowEl.style.display = 'flex';
+});
+
+dashThemeRenameBtnEl.addEventListener('click', async () => {
+  const value = dashThemePresetEl.value;
+  if (!value.startsWith('custom:')) return;
+  const name = dashThemeCustomNameEl.value.trim();
+  if (!name) return;
+  const id = value.slice('custom:'.length);
+  const res = await window.dash.renameCustomTheme(id, name);
+  if (!res.ok) return;
+  customThemesCache = res.customPresets;
+  rebuildCustomThemeOptions();
+  dashThemePresetEl.value = value;
+});
+
+dashThemeDeleteBtnEl.addEventListener('click', async () => {
+  const value = dashThemePresetEl.value;
+  if (!value.startsWith('custom:')) return;
+  const id = value.slice('custom:'.length);
+  const res = await window.dash.deleteCustomTheme(id);
+  if (!res.ok) return;
+  customThemesCache = res.customPresets;
+  rebuildCustomThemeOptions();
+  // The deleted theme can't stay selected -- fall back to classic, same
+  // as picking it from the dropdown by hand.
+  dashThemePresetEl.value = 'classic';
+  dashThemePresetEl.dispatchEvent(new Event('change'));
 });
 
 const dashMusicCommentChanceEl = document.getElementById('dashMusicCommentChance');
@@ -356,7 +605,6 @@ const dashMemoryEnabledEl = document.getElementById('dashMemoryEnabled');
 const dashScreenTipsEnabledEl = document.getElementById('autoScreenTipsEnabled');
 const dashCameraSenseEnabledEl = document.getElementById('autoCameraSenseEnabled');
 const dashCameraSenseIntervalEl = document.getElementById('autoCameraSenseInterval');
-const dashChatEnabledEl = document.getElementById('dashChatEnabled');
 const dashMusicNodEnabledEl = document.getElementById('dashMusicNodEnabled');
 const dashPomodoroDurationEl = document.getElementById('dashPomodoroDuration');
 const dashCompanionEnabledEl = document.getElementById('dashCompanionEnabled');
@@ -415,7 +663,6 @@ dashScreenTipsEnabledEl.addEventListener('change', () => window.dash.setSetting(
 dashScreenTipsAutoIntervalEl.addEventListener('change', () => window.dash.setSetting('screenTipsIntervalMs', Number(dashScreenTipsAutoIntervalEl.value)));
 dashCameraSenseEnabledEl.addEventListener('change', () => window.dash.setSetting('cameraSenseEnabled', dashCameraSenseEnabledEl.checked));
 dashCameraSenseIntervalEl.addEventListener('change', () => window.dash.setSetting('cameraSenseIntervalMs', Number(dashCameraSenseIntervalEl.value)));
-dashChatEnabledEl.addEventListener('change', () => window.dash.setSetting('chatEnabled', dashChatEnabledEl.checked));
 dashMusicNodEnabledEl.addEventListener('change', () => window.dash.setSetting('musicNodEnabled', dashMusicNodEnabledEl.checked));
 dashPomodoroDurationEl.addEventListener('change', () => window.dash.setSetting('pomodoroDurationMin', Number(dashPomodoroDurationEl.value)));
 dashCompanionEnabledEl.addEventListener('change', () => window.dash.setSetting('companionEnabled', dashCompanionEnabledEl.checked));
@@ -574,9 +821,36 @@ function renderSettings(settings) {
   dashDailySummaryIntervalEl.value = String(settings.dailySummaryIntervalMs ?? 21600000);
   dashStatusLightsEnabledEl.checked = !!settings.statusLightsEnabled;
   dashContextRingEnabledEl.checked = settings.contextRingEnabled ?? true;
-  dashPanelAlphaEl.value = settings.dashboardPanelAlpha ?? 0.92;
-  applyPanelAlpha(Number(dashPanelAlphaEl.value));
+  dashWindowOpacityEl.value = settings.dashboardPanelAlpha ?? 0.92;
+  applyWindowOpacityDisplay(Number(dashWindowOpacityEl.value));
+  dashModuleAlphaEl.value = settings.moduleAlpha ?? 0.92;
+  applyModuleAlpha(Number(dashModuleAlphaEl.value));
+  customThemesCache = settings.customPresets ?? [];
+  rebuildCustomThemeOptions();
+  if (settings.activeCustomThemeId) {
+    dashThemePresetEl.value = `custom:${settings.activeCustomThemeId}`;
+    const entry = customThemesCache.find((p) => p.id === settings.activeCustomThemeId);
+    applyThemePreset((entry ?? {}).preset ?? settings.themePreset ?? 'classic');
+    dashThemeCustomNameEl.value = entry ? entry.name : '';
+    dashThemeCustomActionsRowEl.style.display = entry ? 'flex' : 'none';
+  } else {
+    dashThemePresetEl.value = settings.themePreset ?? 'classic';
+    applyThemePreset(dashThemePresetEl.value);
+    dashThemeCustomNameEl.value = '';
+    dashThemeCustomActionsRowEl.style.display = 'none';
+  }
+  dashUiScaleEl.value = String(settings.uiScale ?? 1);
+  applyUiScale(Number(dashUiScaleEl.value));
+  graphFollowTheme = settings.graphFollowTheme ?? true;
+  dashGraphFollowThemeEl.checked = graphFollowTheme;
   dashSkinColorEl.value = settings.petSkinColor ?? DEFAULT_SKIN_COLOR;
+  accentColorPicker.initFrom(settings.accentColor);
+  textColorPicker.initFrom(settings.textColor);
+  bgColorPicker.initFrom(settings.backgroundColor);
+  dashBgAlphaEl.value = String(settings.backgroundAlpha ?? 1);
+  applyBgAlpha(Number(dashBgAlphaEl.value));
+  applyBgImage(settings.backgroundImageUrl);
+  bgImageNameEl.textContent = settings.backgroundImageName ? `已选择：${settings.backgroundImageName}` : '（未设置，用背景颜色）';
   dashMusicCommentChanceEl.value = String(settings.musicCommentChance ?? 0.08);
   dashMusicCommentChanceValueEl.textContent = `${Math.round(Number(dashMusicCommentChanceEl.value) * 100)}%`;
   dashMusicCommentCooldownEl.value = String(Math.round((settings.musicCommentCooldownMs ?? 120000) / 1000));
@@ -586,7 +860,6 @@ function renderSettings(settings) {
   dashScreenTipsAutoIntervalEl.value = String(settings.screenTipsIntervalMs ?? 180000);
   dashCameraSenseEnabledEl.checked = !!settings.cameraSenseEnabled;
   dashCameraSenseIntervalEl.value = String(settings.cameraSenseIntervalMs ?? 120000);
-  dashChatEnabledEl.checked = !!settings.chatEnabled;
   dashMusicNodEnabledEl.checked = !!settings.musicNodEnabled;
   dashPomodoroDurationEl.value = String(settings.pomodoroDurationMin ?? 25);
   dashCompanionEnabledEl.checked = !!settings.companionEnabled;
@@ -2428,14 +2701,59 @@ memoryAddTextEl.addEventListener('keydown', (e) => {
 // fact's text -- top-K neighbours per node above a similarity threshold,
 // the same "relevance" signal generative-agents-style memory systems use
 // for retrieval, repurposed here to explain what's actually related.
-const MEMORY_CATEGORY_COLOR = {
-  身份: '#c44a30',
-  项目: '#4a7fc4',
-  喜好: '#8a4ac4',
-  习惯: '#4ac48a',
-  事件: '#c4a04a',
-  其他: '#888888',
+// One full graph palette per theme preset -- 'classic' reproduces the
+// original hardcoded values exactly (zero visual change for anyone who's
+// never touched 外观). Category hues stay distinguishable but shift
+// slightly per theme so they still read well against that theme's own
+// background (e.g. cyber-green's are brighter/more saturated for
+// legibility on a near-black canvas). Falls back to 'classic' for any
+// preset not listed here (dark-red/dark-pink share light-pink's warm
+// palette shape rather than each getting a bespoke one -- diminishing
+// returns past a certain point). Read via currentGraphPalette(), which
+// also handles the graphFollowTheme toggle.
+const GRAPH_PALETTES = {
+  classic: {
+    bg0: 'rgba(250, 244, 241, 1)', bg1: 'rgba(238, 226, 220, 1)',
+    textRgb: '40, 16, 20', labelBgRgb: '255, 255, 255', nodeStrokeRgb: '255, 255, 255', hoverStrokeRgb: '40, 16, 20',
+    categories: { 身份: '#c44a30', 项目: '#4a7fc4', 喜好: '#8a4ac4', 习惯: '#4ac48a', 事件: '#c4a04a', 其他: '#888888' },
+  },
+  'dark-red': {
+    bg0: 'rgba(46, 34, 36, 1)', bg1: 'rgba(24, 17, 18, 1)',
+    textRgb: '232, 222, 220', labelBgRgb: '46, 34, 36', nodeStrokeRgb: '232, 222, 220', hoverStrokeRgb: '10, 10, 10',
+    categories: { 身份: '#e0664a', 项目: '#6a9fe0', 喜好: '#ac6ae0', 习惯: '#6ae0a0', 事件: '#e0bc5a', 其他: '#a8a0a0' },
+  },
+  'dark-pink': {
+    bg0: 'rgba(46, 34, 42, 1)', bg1: 'rgba(24, 17, 21, 1)',
+    textRgb: '232, 224, 228', labelBgRgb: '46, 34, 42', nodeStrokeRgb: '232, 224, 228', hoverStrokeRgb: '10, 10, 10',
+    categories: { 身份: '#e0664a', 项目: '#6a9fe0', 喜好: '#c26ae0', 习惯: '#6ae0a0', 事件: '#e0bc5a', 其他: '#a8a0a8' },
+  },
+  'light-pink': {
+    bg0: 'rgba(253, 244, 248, 1)', bg1: 'rgba(244, 224, 232, 1)',
+    textRgb: '64, 24, 38', labelBgRgb: '255, 255, 255', nodeStrokeRgb: '255, 255, 255', hoverStrokeRgb: '64, 24, 38',
+    categories: { 身份: '#c4304a', 项目: '#4a7fc4', 喜好: '#a44ac4', 习惯: '#4ac48a', 事件: '#c4a04a', 其他: '#888888' },
+  },
+  'cyber-green': {
+    bg0: 'rgba(24, 40, 32, 1)', bg1: 'rgba(10, 16, 13, 1)',
+    textRgb: '210, 255, 228', labelBgRgb: '16, 28, 22', nodeStrokeRgb: '0, 230, 118', hoverStrokeRgb: '210, 255, 228',
+    categories: { 身份: '#ff6a4a', 项目: '#4ad2ff', 喜好: '#c94aff', 习惯: '#4aff9c', 事件: '#ffd24a', 其他: '#7fcf9f' },
+  },
+  'liquid-glass': {
+    bg0: 'rgba(250, 250, 252, 1)', bg1: 'rgba(230, 230, 236, 1)',
+    textRgb: '51, 51, 51', labelBgRgb: '255, 255, 255', nodeStrokeRgb: '255, 255, 255', hoverStrokeRgb: '0, 122, 255',
+    categories: { 身份: '#ff3b30', 项目: '#007aff', 喜好: '#af52de', 习惯: '#34c759', 事件: '#ff9500', 其他: '#8e8e93' },
+  },
 };
+let graphFollowTheme = true;
+function currentGraphPalette() {
+  const theme = graphFollowTheme ? (document.documentElement.getAttribute('data-theme') || 'classic') : 'classic';
+  return GRAPH_PALETTES[theme] ?? GRAPH_PALETTES.classic;
+}
+const dashGraphFollowThemeEl = document.getElementById('dashGraphFollowTheme');
+dashGraphFollowThemeEl.addEventListener('change', () => {
+  graphFollowTheme = dashGraphFollowThemeEl.checked;
+  window.dash.setSetting('graphFollowTheme', graphFollowTheme);
+  if (graphRunning) drawGraph();
+});
 
 const memoryViewListBtnEl = document.getElementById('memoryViewListBtn');
 const memoryViewGraphBtnEl = document.getElementById('memoryViewGraphBtn');
@@ -2565,14 +2883,18 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Cached once -- recreating a canvas-sized gradient every frame is wasted
-// work when the canvas itself never resizes.
+// Cached once per theme key -- recreating a canvas-sized gradient every
+// frame is wasted work when the canvas itself doesn't resize, but it must
+// still be invalidated whenever the active theme (or the "跟随主题" toggle)
+// changes, or switching themes wouldn't visibly re-tint the graph.
 let graphBgGradient = null;
-function graphBackground(ctx, W, H) {
-  if (!graphBgGradient) {
+let graphBgGradientKey = '';
+function graphBackground(ctx, W, H, palette, key) {
+  if (!graphBgGradient || graphBgGradientKey !== key) {
     graphBgGradient = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) / 1.3);
-    graphBgGradient.addColorStop(0, 'rgba(250, 244, 241, 1)');
-    graphBgGradient.addColorStop(1, 'rgba(238, 226, 220, 1)');
+    graphBgGradient.addColorStop(0, palette.bg0);
+    graphBgGradient.addColorStop(1, palette.bg1);
+    graphBgGradientKey = key;
   }
   ctx.fillStyle = graphBgGradient;
   ctx.fillRect(0, 0, W, H);
@@ -2582,7 +2904,10 @@ function drawGraph() {
   const W = memoryGraphCanvasEl.width;
   const H = memoryGraphCanvasEl.height;
   const ctx = memoryGraphCtx;
-  graphBackground(ctx, W, H);
+  const palette = currentGraphPalette();
+  const paletteKey = graphFollowTheme ? (document.documentElement.getAttribute('data-theme') || 'classic') : 'classic';
+  const categoryColor = palette.categories;
+  graphBackground(ctx, W, H, palette, paletteKey);
 
   // Edges: a soft gradient between each pair's own category colours (rather
   // than one flat line colour for everything) so the connection itself
@@ -2592,8 +2917,8 @@ function drawGraph() {
   for (const [a, b, weight] of graphEdges) {
     const w = weight ?? 0.6;
     const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
-    const colorA = MEMORY_CATEGORY_COLOR[a.category] ?? MEMORY_CATEGORY_COLOR.其他;
-    const colorB = MEMORY_CATEGORY_COLOR[b.category] ?? MEMORY_CATEGORY_COLOR.其他;
+    const colorA = categoryColor[a.category] ?? categoryColor.其他;
+    const colorB = categoryColor[b.category] ?? categoryColor.其他;
     grad.addColorStop(0, colorA);
     grad.addColorStop(1, colorB);
     ctx.strokeStyle = grad;
@@ -2611,7 +2936,7 @@ function drawGraph() {
   // every circle/edge, never hidden behind a neighboring node.
   for (const n of graphNodes) {
     const r = nodeRadius(n);
-    const baseColor = MEMORY_CATEGORY_COLOR[n.category] ?? MEMORY_CATEGORY_COLOR.其他;
+    const baseColor = categoryColor[n.category] ?? categoryColor.其他;
     const isHover = n.id === graphHoverId;
 
     // A gentle glow behind hovered/important nodes rather than a flat
@@ -2637,7 +2962,7 @@ function drawGraph() {
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.lineWidth = isHover ? 3 : 1.5;
-    ctx.strokeStyle = isHover ? 'rgba(40, 16, 20, 0.7)' : 'rgba(255, 255, 255, 0.85)';
+    ctx.strokeStyle = isHover ? `rgba(${palette.hoverStrokeRgb}, 0.7)` : `rgba(${palette.nodeStrokeRgb}, 0.85)`;
     if (n.uncertain) ctx.setLineDash([3, 3]); // dashed ring = a guess, not a confirmed fact
     ctx.stroke();
     ctx.setLineDash([]);
@@ -2655,18 +2980,18 @@ function drawGraph() {
     const boxX = Math.max(2, Math.min(W - boxW - 2, n.x - boxW / 2));
     const boxY = Math.min(H - boxH - 2, n.y + r + 5);
     ctx.save();
-    ctx.shadowColor = 'rgba(40, 16, 20, 0.15)';
+    ctx.shadowColor = `rgba(${palette.textRgb}, 0.15)`;
     ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.97)';
+    ctx.fillStyle = `rgba(${palette.labelBgRgb}, 0.97)`;
     roundRectPath(ctx, boxX, boxY, boxW, boxH, 5);
     ctx.fill();
     ctx.restore();
-    ctx.strokeStyle = 'rgba(40, 16, 20, 0.15)';
+    ctx.strokeStyle = `rgba(${palette.textRgb}, 0.15)`;
     ctx.lineWidth = 1;
     roundRectPath(ctx, boxX, boxY, boxW, boxH, 5);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(40, 16, 20, 0.92)';
+    ctx.fillStyle = `rgba(${palette.textRgb}, 0.92)`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, boxX + boxW / 2, boxY + boxH / 2 + 1);

@@ -12,6 +12,8 @@ import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } 
 import { createCameraSenseWatcher } from './camera-sense.js';
 import { createVoiceSttWatcher } from './voice-stt.js';
 import { createWhisperSttWatcher } from './voice-stt-whisper.js';
+import { synthesizePiper } from './voice-tts-piper.js';
+import { synthesizeEdge } from './voice-tts-edge.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
@@ -586,6 +588,40 @@ function stopCameraSense() {
   cameraSenseWatcher = null;
 }
 
+// Unified TTS resolver: tries the configured engine, falling back down the
+// chain (edge-cloud -> piper -> null) on any failure rather than throwing,
+// so a network hiccup or a never-run setup script never means silence --
+// null tells the renderer "use the browser's own speechSynthesis instead",
+// which is always available with zero setup. 'sapi' itself never reaches
+// this function at all (see pet:synthesize-speech below) -- the renderer
+// just calls its existing local speak() directly, unchanged from before
+// this feature existed.
+async function synthesizeSpeechFile(text, voiceCfg) {
+  const engine = voiceCfg?.ttsEngine ?? 'sapi';
+  if (engine === 'edge-cloud') {
+    try {
+      return await synthesizeEdge(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.edge });
+    } catch (err) {
+      if (cfg.debug) console.error('[tts] edge-cloud failed, falling back:', err.message);
+    }
+  }
+  if ((engine === 'edge-cloud' || engine === 'piper') && voiceCfg.piper?.modelPath) {
+    try {
+      return await synthesizePiper(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.piper });
+    } catch (err) {
+      if (cfg.debug) console.error('[tts] piper failed, falling back to browser voice:', err.message);
+    }
+  }
+  return null;
+}
+
+ipcMain.handle('pet:synthesize-speech', async (_e, text) => {
+  const voiceCfg = cfg.voice ?? {};
+  if ((voiceCfg.ttsEngine ?? 'sapi') === 'sapi' || !text) return { fileUrl: null };
+  const result = await synthesizeSpeechFile(text, voiceCfg);
+  return { fileUrl: result?.filePath ? pathToFileURL(result.filePath).href : null };
+});
+
 function startVoiceStt() {
   if (voiceSttWatcher) return;
   const onTranscript = (text) => {
@@ -1068,18 +1104,28 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
     case 'voiceVolume':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.volume = Math.max(0, Math.min(1, Number(value)));
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
       break;
     case 'voiceRate':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.rate = Math.max(0.1, Math.min(2, Number(value)));
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
       break;
     case 'voicePitch':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.pitch = Math.max(0.1, Math.min(2, Number(value)));
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
       break;
     case 'voiceVoiceName':
       cfg.voice = cfg.voice ?? {};
       cfg.voice.voiceName = value;
+      // The pet window's own `cfg` is a one-time snapshot from getConfig()
+      // at load (see renderer.js) -- everywhere that reads cfg.voice
+      // directly (screen-tip comments, gesture reactions, music comments,
+      // as opposed to the chat-speak path which re-reads cfg.voice fresh
+      // in this process each message) would otherwise keep using
+      // whatever voice was selected at launch until the app restarts.
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
       break;
     case 'voicePushToTalkKey':
       cfg.voice = cfg.voice ?? {};
@@ -1264,6 +1310,71 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       cfg.theme = cfg.theme ?? {};
       cfg.theme.skinColor = hex;
       if (alive()) win.webContents.send('pet:skin-color', hex);
+      break;
+    }
+    case 'accentColor': {
+      // Empty string means "no override -- inherit whatever the active
+      // preset defines", same convention as textColor below.
+      const hex = value === '' || /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.accentColor = hex;
+      if (alive()) win.webContents.send('pet:accent-color', hex);
+      break;
+    }
+    case 'textColor': {
+      const hex = value === '' || /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.textColor = hex;
+      if (alive()) win.webContents.send('pet:text-color', hex);
+      break;
+    }
+    case 'backgroundColor': {
+      // Dashboard-only (unlike skin/accent/text above) -- the control
+      // panel's own base layer behind the sidebar/module glass blocks,
+      // not pushed to the pet window since it has no equivalent surface.
+      const hex = value === '' || /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.backgroundColor = hex;
+      break;
+    }
+    case 'backgroundAlpha': {
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.backgroundAlpha = Math.min(1, Math.max(0.15, Number(value) || 1));
+      break;
+    }
+    case 'graphFollowTheme': {
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.graphFollowTheme = !!value;
+      break;
+    }
+    case 'moduleAlpha': {
+      // Sidebar/module glass alpha only (--panel-alpha) -- deliberately
+      // separate from 'dashboardPanelAlpha' above, which is the native
+      // window opacity, and from backgroundAlpha above that, which is the
+      // background layer. Three independent transparency controls.
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.moduleAlpha = Math.min(1, Math.max(0.3, Number(value) || 0.92));
+      break;
+    }
+    case 'themePreset': {
+      const allowed = new Set(['classic', 'dark-red', 'dark-pink', 'light-pink', 'cyber-green', 'liquid-glass']);
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.preset = allowed.has(value) ? value : 'classic';
+      // Picking a built-in preset directly (as opposed to
+      // dashboard:apply-custom-theme) means we're no longer "on" whatever
+      // custom theme was previously active -- keep the dropdown honest.
+      cfg.theme.activeCustomThemeId = '';
+      // Same reasoning as petSkinColor above -- the pet window's own chat
+      // bubbles/panels use the identical [data-theme] CSS variables (see
+      // index.html), so a preset chosen in the dashboard needs pushing
+      // over to the pet window too, not just applied locally there.
+      if (alive()) win.webContents.send('pet:theme-preset', cfg.theme.preset);
+      break;
+    }
+    case 'uiScale': {
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.uiScale = Math.min(1.3, Math.max(0.85, Number(value) || 1));
+      if (alive()) win.webContents.send('pet:ui-scale', cfg.theme.uiScale);
       break;
     }
     case 'musicCommentChance': {
@@ -1736,6 +1847,106 @@ ipcMain.handle('dashboard:clear-sound-file', (_e, slot) => {
   return { ok: true, ...soundsPayload() };
 });
 
+function currentThemeSnapshot() {
+  cfg.theme = cfg.theme ?? {};
+  return {
+    preset: cfg.theme.preset ?? 'classic',
+    skinColor: cfg.theme.skinColor ?? '#faf0e4',
+    accentColor: cfg.theme.accentColor ?? '',
+    textColor: cfg.theme.textColor ?? '',
+    backgroundColor: cfg.theme.backgroundColor ?? '',
+    backgroundAlpha: cfg.theme.backgroundAlpha ?? 1,
+    moduleAlpha: cfg.theme.moduleAlpha ?? 0.92,
+    backgroundImagePath: cfg.theme.backgroundImagePath ?? '',
+    uiScale: cfg.theme.uiScale ?? 1,
+  };
+}
+
+ipcMain.handle('dashboard:save-custom-theme', (_e, { name } = {}) => {
+  const trimmed = String(name ?? '').trim().slice(0, 40);
+  if (!trimmed) return { ok: false, error: '请输入主题名字' };
+  cfg.theme = cfg.theme ?? {};
+  cfg.theme.customPresets = cfg.theme.customPresets ?? [];
+  const id = `custom-${Date.now()}`;
+  cfg.theme.customPresets.push({ id, name: trimmed, ...currentThemeSnapshot() });
+  cfg.theme.activeCustomThemeId = id;
+  persistConfig();
+  return { ok: true, id, customPresets: cfg.theme.customPresets };
+});
+
+ipcMain.handle('dashboard:rename-custom-theme', (_e, { id, name } = {}) => {
+  const trimmed = String(name ?? '').trim().slice(0, 40);
+  if (!trimmed) return { ok: false, error: '请输入主题名字' };
+  cfg.theme = cfg.theme ?? {};
+  const entry = (cfg.theme.customPresets ?? []).find((p) => p.id === id);
+  if (!entry) return { ok: false, error: '主题不存在' };
+  entry.name = trimmed;
+  persistConfig();
+  return { ok: true, customPresets: cfg.theme.customPresets };
+});
+
+ipcMain.handle('dashboard:delete-custom-theme', (_e, { id } = {}) => {
+  cfg.theme = cfg.theme ?? {};
+  cfg.theme.customPresets = (cfg.theme.customPresets ?? []).filter((p) => p.id !== id);
+  if (cfg.theme.activeCustomThemeId === id) cfg.theme.activeCustomThemeId = '';
+  persistConfig();
+  return { ok: true, customPresets: cfg.theme.customPresets, activeCustomThemeId: cfg.theme.activeCustomThemeId };
+});
+
+ipcMain.handle('dashboard:apply-custom-theme', (_e, { id } = {}) => {
+  cfg.theme = cfg.theme ?? {};
+  const entry = (cfg.theme.customPresets ?? []).find((p) => p.id === id);
+  if (!entry) return { ok: false, error: '主题不存在' };
+  cfg.theme.preset = entry.preset ?? 'classic';
+  cfg.theme.skinColor = entry.skinColor ?? '#faf0e4';
+  cfg.theme.accentColor = entry.accentColor ?? '';
+  cfg.theme.textColor = entry.textColor ?? '';
+  cfg.theme.backgroundColor = entry.backgroundColor ?? '';
+  cfg.theme.backgroundAlpha = entry.backgroundAlpha ?? 1;
+  cfg.theme.moduleAlpha = entry.moduleAlpha ?? 0.92;
+  cfg.theme.backgroundImagePath = entry.backgroundImagePath ?? '';
+  cfg.theme.uiScale = entry.uiScale ?? 1;
+  cfg.theme.activeCustomThemeId = id;
+  persistConfig();
+  // Same fields the individual pet:settings-set cases push to the pet
+  // window (background/alpha stay dashboard-only, same scoping as those
+  // cases use).
+  if (alive()) {
+    win.webContents.send('pet:theme-preset', cfg.theme.preset);
+    win.webContents.send('pet:skin-color', cfg.theme.skinColor);
+    win.webContents.send('pet:accent-color', cfg.theme.accentColor);
+    win.webContents.send('pet:text-color', cfg.theme.textColor);
+    win.webContents.send('pet:ui-scale', cfg.theme.uiScale);
+  }
+  return {
+    ok: true,
+    backgroundImageUrl: cfg.theme.backgroundImagePath && existsSync(cfg.theme.backgroundImagePath)
+      ? pathToFileURL(cfg.theme.backgroundImagePath).href
+      : null,
+    backgroundImageName: cfg.theme.backgroundImagePath ? basename(cfg.theme.backgroundImagePath) : null,
+  };
+});
+
+ipcMain.handle('dashboard:pick-background-image', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: '选择背景图片',
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, cancelled: true };
+  cfg.theme = cfg.theme ?? {};
+  cfg.theme.backgroundImagePath = result.filePaths[0];
+  persistConfig();
+  return { ok: true, backgroundImageUrl: pathToFileURL(result.filePaths[0]).href, backgroundImageName: basename(result.filePaths[0]) };
+});
+
+ipcMain.handle('dashboard:clear-background-image', () => {
+  cfg.theme = cfg.theme ?? {};
+  cfg.theme.backgroundImagePath = '';
+  persistConfig();
+  return { ok: true };
+});
+
 ipcMain.handle('dashboard:pick-pet-pack-folder', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: '选择角色包文件夹' });
   if (result.canceled || !result.filePaths.length) return { ok: false, cancelled: true };
@@ -2022,6 +2233,20 @@ function dashboardSnapshot() {
         pet: cfg.sounds?.petFile ? basename(cfg.sounds.petFile) : null,
       },
       petSkinColor: cfg.theme?.skinColor ?? '#faf0e4',
+      accentColor: cfg.theme?.accentColor ?? '',
+      textColor: cfg.theme?.textColor ?? '',
+      backgroundColor: cfg.theme?.backgroundColor ?? '',
+      backgroundAlpha: cfg.theme?.backgroundAlpha ?? 1,
+      backgroundImageUrl: cfg.theme?.backgroundImagePath && existsSync(cfg.theme.backgroundImagePath)
+        ? pathToFileURL(cfg.theme.backgroundImagePath).href
+        : null,
+      backgroundImageName: cfg.theme?.backgroundImagePath ? basename(cfg.theme.backgroundImagePath) : null,
+      moduleAlpha: cfg.theme?.moduleAlpha ?? 0.92,
+      customPresets: cfg.theme?.customPresets ?? [],
+      activeCustomThemeId: cfg.theme?.activeCustomThemeId ?? '',
+      graphFollowTheme: cfg.theme?.graphFollowTheme ?? true,
+      themePreset: cfg.theme?.preset ?? 'classic',
+      uiScale: cfg.theme?.uiScale ?? 1,
       musicCommentChance: activePet().musicTaste?.commentChance ?? 0.08,
       musicCommentCooldownMs: activePet().musicTaste?.cooldownMs ?? 120000,
     },
@@ -2203,7 +2428,7 @@ ipcMain.on('dashboard:toggle-screentips', (_e, paused) => {
 // workSupervision has its own separate watcher/config and isn't covered by
 // this button, since it only makes sense mid-pomodoro anyway.
 ipcMain.handle('dashboard:trigger-screentip', async () => {
-  if (!screenTipWatcher) return { ok: false, error: '屏幕提示功能未开启（先在"功能开关"页打开）' };
+  if (!screenTipWatcher) return { ok: false, error: '屏幕提示功能未开启（先在"自动化"页打开）' };
   try {
     const tip = await screenTipWatcher.trigger();
     if (!tip) return { ok: false, error: '这次没有识别到内容（可能被暂停了，或视觉模型没反应）' };
@@ -2244,7 +2469,13 @@ ipcMain.handle('pet:config', () => {
     sounds: soundsPayload(),
     gestures: cfg.gestures ?? {},
     toggles: { statusBubbleEnabled, tipBubbleEnabled, randomActionsEnabled, wanderEnabled: wanderEnabled() },
-    theme: { skinColor: cfg.theme?.skinColor ?? '#faf0e4' },
+    theme: {
+      skinColor: cfg.theme?.skinColor ?? '#faf0e4',
+      accentColor: cfg.theme?.accentColor ?? '',
+      textColor: cfg.theme?.textColor ?? '',
+      preset: cfg.theme?.preset ?? 'classic',
+      uiScale: cfg.theme?.uiScale ?? 1,
+    },
     pet: petPayload(pet),
   };
 });

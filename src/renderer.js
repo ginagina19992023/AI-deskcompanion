@@ -17,6 +17,13 @@ import { speak } from './voice-tts.js';
 const cfg = await window.pet.getConfig();
 if (!cfg) throw new Error('config unavailable');
 
+// cfg above is a one-time snapshot -- every speak(text, cfg.voice) call
+// site elsewhere in this file would otherwise keep using whatever voice/
+// rate/pitch/volume was selected back when this window first loaded,
+// silently ignoring later changes made in the dashboard (unlike the chat
+// TTS path, which gets a fresh voiceConfig pushed per message from main).
+window.pet.onVoiceConfig((voice) => { cfg.voice = voice; });
+
 const canvas = document.getElementById('stage');
 const g = canvas.getContext('2d', { willReadFrequently: true });
 const bubbleAreaEl = document.getElementById('bubbleArea');
@@ -109,6 +116,43 @@ function applySkinColor(hex) {
 }
 if (cfg.theme?.skinColor) applySkinColor(cfg.theme.skinColor);
 window.pet.onSkinColor((hex) => applySkinColor(hex));
+
+// Same idea as applySkinColor, but for the accent/text colours: an empty
+// hex means "no override", so the [data-theme] preset's own --theme-*-rgb
+// wins again -- these two just let fine-tuning sit on top of any preset.
+function applyOverrideColor(varName, hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex ?? '');
+  if (!m) {
+    document.documentElement.style.removeProperty(varName);
+    return;
+  }
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  document.documentElement.style.setProperty(varName, `${r}, ${g}, ${b}`);
+}
+const applyAccentColor = (hex) => applyOverrideColor('--theme-accent-rgb', hex);
+const applyTextColor = (hex) => applyOverrideColor('--theme-text-rgb', hex);
+applyAccentColor(cfg.theme?.accentColor);
+applyTextColor(cfg.theme?.textColor);
+window.pet.onAccentColor((hex) => applyAccentColor(hex));
+window.pet.onTextColor((hex) => applyTextColor(hex));
+
+// Theme preset ('classic' | 'dark-red' | 'dark-pink' | 'light-pink') and
+// UI scale -- same [data-theme]/--ui-scale variables dashboard.html's
+// preset blocks key off of (see its :root comment), pushed here from the
+// dashboard so the pet's own chat panel/bubbles match whatever's chosen
+// there instead of only the dashboard window re-skinning.
+function applyThemePreset(preset) {
+  if (preset && preset !== 'classic') document.documentElement.setAttribute('data-theme', preset);
+  else document.documentElement.removeAttribute('data-theme');
+}
+if (cfg.theme?.preset) applyThemePreset(cfg.theme.preset);
+window.pet.onThemePreset((preset) => applyThemePreset(preset));
+
+if (cfg.theme?.uiScale) document.documentElement.style.setProperty('--ui-scale', cfg.theme.uiScale);
+window.pet.onUiScale((scale) => document.documentElement.style.setProperty('--ui-scale', scale));
 
 let sheet = null;
 let brain = null;
