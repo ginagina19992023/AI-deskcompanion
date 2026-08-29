@@ -412,6 +412,34 @@ window.pet.onChatHistory(({ messages }) => {
 
 window.pet.onChatConvList(({ convs }) => renderConvList(convs));
 
+// Handle chat voice output: accumulate text deltas and speak when we hit sentence-ending punctuation
+let chatSpeechBuffer = '';
+let currentVoiceConfig = null;
+
+window.pet.onChatSpeak(({ delta, voiceConfig }) => {
+  // Store voice config for use in completion handler
+  currentVoiceConfig = voiceConfig;
+
+  // Accumulate text
+  if (!chatSpeechBuffer) chatSpeechBuffer = '';
+  chatSpeechBuffer += delta;
+
+  // Speak when we hit Chinese sentence-ending punctuation
+  if (/[。！？\n]$/.test(chatSpeechBuffer)) {
+    speak(chatSpeechBuffer, voiceConfig);
+    chatSpeechBuffer = '';
+  }
+});
+
+window.pet.onChatComplete(() => {
+  // Speak any remaining buffered text when chat completes
+  if (chatSpeechBuffer && currentVoiceConfig) {
+    speak(chatSpeechBuffer, currentVoiceConfig);
+  }
+  chatSpeechBuffer = '';
+  currentVoiceConfig = null;
+});
+
 // Sending a second message while the first is still streaming used to
 // silently reassign pendingBubbleEl to the new placeholder, losing the
 // reference to the first one -- confirmed live: three messages sent in a

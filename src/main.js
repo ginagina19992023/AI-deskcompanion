@@ -3187,9 +3187,19 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
     .map(({ role, content }) => ({ role, content }));
   context.push({ role: 'user', content: userText, images: [imageBase64] });
   try {
+    // Check if voice mode is enabled to pass voice config for TTS
+    const voiceConfig = cfg.chat?.voiceMode ? cfg.voice : null;
     const full = await streamChatReply(effectiveCfg, context, (delta) => {
       if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
+      // If voice mode enabled, send delta for TTS processing
+      if (voiceConfig && alive()) {
+        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
+      }
     });
+    // Signal completion for any remaining buffered speech
+    if (voiceConfig && alive()) {
+      win.webContents.send('pet:chat-complete', { text: full });
+    }
     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
     conv.updatedAt = Date.now();
     saveChatConvs();
@@ -3771,9 +3781,19 @@ ipcMain.on('pet:chat-send', async (_e, text) => {
   const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : chatCfg.systemPrompt };
   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
   try {
+    // Check if voice mode is enabled to pass voice config for TTS
+    const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
     const full = await streamChatReply(effectiveCfg, context, (delta) => {
       if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
+      // If voice mode enabled, send delta for TTS processing
+      if (voiceConfig && alive()) {
+        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
+      }
     });
+    // Signal completion for any remaining buffered speech
+    if (voiceConfig && alive()) {
+      win.webContents.send('pet:chat-complete', { text: full });
+    }
     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
     conv.updatedAt = Date.now();
     saveChatConvs();
