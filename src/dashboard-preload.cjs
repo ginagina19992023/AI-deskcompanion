@@ -49,4 +49,16 @@ contextBridge.exposeInMainWorld('dash', {
   outlookConnect: () => ipcRenderer.invoke('dashboard:outlook-connect'),
   outlookDisconnect: () => ipcRenderer.invoke('dashboard:outlook-disconnect'),
   outlookSyncNow: () => ipcRenderer.invoke('dashboard:outlook-sync-now'),
+
+  chatSend: (text) => ipcRenderer.send('pet:chat-send', text),
+  chatGetHistory: () => ipcRenderer.invoke('dashboard:chat-get-history'),
+  onChatDelta: (cb) => ipcRenderer.on('pet:chat-delta', (_e, data) => cb(data)),
+  onChatMessageDone: (cb) => ipcRenderer.on('pet:chat-message-done', (_e, data) => cb(data)),
+  onChatError: (cb) => ipcRenderer.on('pet:chat-error', (_e, data) => cb(data)),
+  onChatSpeakDelta: (cb) => ipcRenderer.on('pet:chat-speak-delta', (_e, data) => cb(data)),
+  onChatComplete: (cb) => ipcRenderer.on('pet:chat-complete', (_e, data) => cb(data)),
+  voicePptStart: () => ipcRenderer.send('pet:voice-ppt-start'),
+  voicePptStop: () => ipcRenderer.send('pet:voice-ppt-stop'),
+  onVoiceTranscript: (cb) => ipcRenderer.on('pet:voice-transcript', (_e, text) => cb(text)),
+  onVoiceError: (cb) => ipcRenderer.on('pet:voice-error', (_e, data) => cb(data)),
 });

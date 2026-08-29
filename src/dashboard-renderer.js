@@ -7,6 +7,7 @@
 
 import { ATLAS, BASE_ROWS } from './atlas.js';
 import { isOverdue, parseTodoInput } from './todos.js';
+import { speak } from './voice-tts.js';
 
 // Sprite-sheet dimension check for imported character packs -- the exact
 // same rule renderer.js's loadPet() applies to the two shipped pets, run
@@ -76,6 +77,7 @@ function showSection(name) {
   }
   if (name === 'gestures') loadGestures();
   if (name === 'automation') refreshAutomationOutlookStatus();
+  if (name === 'chat') loadChatTab();
 }
 for (const btn of navBtns) btn.addEventListener('click', () => showSection(btn.dataset.section));
 
@@ -568,6 +570,106 @@ function renderSettings(settings) {
 }
 
 window.dash.getModels().then(({ models }) => populateModelDatalist(models));
+
+// --- chat tab ------------------------------------------------------
+const chatTabMessagesEl = document.getElementById('chatTabMessages');
+const chatTabInputEl = document.getElementById('chatTabInput');
+const chatTabSendEl = document.getElementById('chatTabSend');
+const chatTabVoiceBtnEl = document.getElementById('chatTabVoiceBtn');
+
+let chatTabPendingBubble = null;
+let chatTabSpeechBuffer = '';
+let chatTabVoiceConfig = null;
+let chatTabLoaded = false;
+
+function appendChatTabMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = `chat-tab-msg ${role}`;
+  div.textContent = text;
+  chatTabMessagesEl.appendChild(div);
+  chatTabMessagesEl.scrollTop = chatTabMessagesEl.scrollHeight;
+  return div;
+}
+
+async function loadChatTab() {
+  if (chatTabLoaded) return;
+  chatTabLoaded = true;
+  const { messages } = await window.dash.chatGetHistory();
+  chatTabMessagesEl.replaceChildren();
+  for (const m of messages ?? []) {
+    if (m.role === 'user' || m.role === 'assistant') appendChatTabMessage(m.role, m.content);
+  }
+}
+
+function sendChatTabMessage() {
+  const text = chatTabInputEl.value.trim();
+  if (!text) return;
+  appendChatTabMessage('user', text);
+  chatTabInputEl.value = '';
+  chatTabPendingBubble = null;
+  window.dash.chatSend(text);
+}
+
+chatTabSendEl.addEventListener('click', sendChatTabMessage);
+chatTabInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChatTabMessage();
+});
+
+window.dash.onChatDelta(({ text }) => {
+  if (!chatTabPendingBubble) chatTabPendingBubble = appendChatTabMessage('assistant', '');
+  chatTabPendingBubble.textContent += text;
+  chatTabMessagesEl.scrollTop = chatTabMessagesEl.scrollHeight;
+});
+
+window.dash.onChatMessageDone(() => {
+  chatTabPendingBubble = null;
+});
+
+window.dash.onChatError(({ message }) => {
+  appendChatTabMessage('error', message);
+  chatTabPendingBubble = null;
+});
+
+window.dash.onChatSpeakDelta(({ delta, voiceConfig }) => {
+  chatTabVoiceConfig = voiceConfig;
+  chatTabSpeechBuffer += delta;
+  if (/[。！？\n]$/.test(chatTabSpeechBuffer)) {
+    speak(chatTabSpeechBuffer, voiceConfig);
+    chatTabSpeechBuffer = '';
+  }
+});
+
+window.dash.onChatComplete(() => {
+  if (chatTabSpeechBuffer && chatTabVoiceConfig) {
+    speak(chatTabSpeechBuffer, chatTabVoiceConfig);
+  }
+  chatTabSpeechBuffer = '';
+});
+
+chatTabVoiceBtnEl.addEventListener('mousedown', () => {
+  chatTabVoiceBtnEl.classList.add('listening');
+  window.dash.voicePptStart();
+});
+chatTabVoiceBtnEl.addEventListener('mouseup', () => {
+  chatTabVoiceBtnEl.classList.remove('listening');
+  window.dash.voicePptStop();
+});
+chatTabVoiceBtnEl.addEventListener('mouseleave', () => {
+  if (chatTabVoiceBtnEl.classList.contains('listening')) {
+    chatTabVoiceBtnEl.classList.remove('listening');
+    window.dash.voicePptStop();
+  }
+});
+
+window.dash.onVoiceTranscript((text) => {
+  if (!text) return;
+  const current = chatTabInputEl.value.trim();
+  chatTabInputEl.value = current ? `${current} ${text}` : text;
+  chatTabInputEl.focus();
+});
+window.dash.onVoiceError(({ message }) => {
+  appendChatTabMessage('error', `语音识别出错：${message}`);
+});
 
 // --- todos -------------------------------------------------------------
 const dashTodoListEl = document.getElementById('dashTodoList');

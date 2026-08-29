@@ -590,10 +590,12 @@ function startVoiceStt() {
     onTranscript: (text) => {
       if (cfg.debug) console.log('[voice-stt] transcript:', text);
       if (alive()) win.webContents.send('pet:voice-transcript', text);
+      if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-transcript', text);
     },
     onError: (err) => {
       if (cfg.debug) console.error('[voice-stt]', err.message);
       if (alive()) win.webContents.send('pet:voice-error', { message: err.message });
+      if (dashboardWin && !dashboardWin.isDestroyed()) dashboardWin.webContents.send('pet:voice-error', { message: err.message });
     },
   });
 }
@@ -1986,6 +1988,7 @@ function dashboardSnapshot() {
 }
 
 ipcMain.handle('dashboard:get-data', () => dashboardSnapshot());
+ipcMain.handle('dashboard:chat-get-history', () => ({ messages: curConv().messages }));
 ipcMain.handle('dashboard:get-memory', () => dashboardMemoryPayload());
 ipcMain.handle('dashboard:delete-memory', (_e, id) => {
   petMemory = petMemory.filter((m) => m.id !== id);
@@ -3758,15 +3761,17 @@ async function extractActivityMemoryFacts() {
 
 let chatRequestInFlight = false;
 
-ipcMain.on('pet:chat-send', async (_e, text) => {
-  if (typeof text !== 'string' || !text.trim() || !alive()) return;
+ipcMain.on('pet:chat-send', async (e, text) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  const replyAlive = () => senderWin && !senderWin.isDestroyed();
+  if (typeof text !== 'string' || !text.trim() || !replyAlive()) return;
   if (chatRequestInFlight) {
-    win.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
+    senderWin.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
     return;
   }
   const chatCfg = cfg.chat ?? {};
   if (!chatCfg.enabled) {
-    win.webContents.send('pet:chat-error', { message: '聊天功能未开启（config.json 里 chat.enabled）。' });
+    senderWin.webContents.send('pet:chat-error', { message: '聊天功能未开启（config.json 里 chat.enabled）。' });
     return;
   }
   chatRequestInFlight = true;
@@ -3784,26 +3789,26 @@ ipcMain.on('pet:chat-send', async (_e, text) => {
     // Check if voice mode is enabled to pass voice config for TTS
     const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
     const full = await streamChatReply(effectiveCfg, context, (delta) => {
-      if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
+      if (replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: delta });
       // If voice mode enabled, send delta for TTS processing
-      if (voiceConfig && alive()) {
-        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
+      if (voiceConfig && replyAlive()) {
+        senderWin.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
       }
     });
     // Signal completion for any remaining buffered speech
-    if (voiceConfig && alive()) {
-      win.webContents.send('pet:chat-complete', { text: full });
+    if (voiceConfig && replyAlive()) {
+      senderWin.webContents.send('pet:chat-complete', { text: full });
     }
     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
     conv.updatedAt = Date.now();
     saveChatConvs();
-    if (alive()) win.webContents.send('pet:chat-message-done', { text: full });
+    if (replyAlive()) senderWin.webContents.send('pet:chat-message-done', { text: full });
     // Fire-and-forget -- must not delay the reply the user is already
     // looking at, and a failed extraction shouldn't surface as a chat error.
     extractMemoryFacts(userText, full, chatCfg);
   } catch (err) {
     if (cfg.debug) console.error('[chat]', err.message);
-    if (alive()) win.webContents.send('pet:chat-error', { message: err.message });
+    if (replyAlive()) senderWin.webContents.send('pet:chat-error', { message: err.message });
   } finally {
     chatRequestInFlight = false;
   }

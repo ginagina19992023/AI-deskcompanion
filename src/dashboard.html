@@ -335,6 +335,13 @@
   .memory-history-text { color: rgba(40, 16, 20, 0.7); }
 
   .task-item-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(40, 16, 20, 0.7); margin-top: 3px; }
+
+  .chat-tab-msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; max-width: 85%; word-wrap: break-word; white-space: pre-wrap; }
+  .chat-tab-msg.user { background: rgba(120, 24, 32, 0.12); margin-left: auto; text-align: right; }
+  .chat-tab-msg.assistant { background: rgba(0, 0, 0, 0.05); margin-right: auto; }
+  .chat-tab-msg.error { background: rgba(200, 40, 40, 0.15); color: rgba(160, 20, 20, 0.9); margin-right: auto; font-size: 13px; }
+  #chatTabVoiceBtn.listening { background: rgba(255, 100, 100, 0.3); border-color: rgba(255, 100, 100, 0.8); animation: chatTabPulse 0.5s infinite; }
+  @keyframes chatTabPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 </style>
 </head>
 <body>
@@ -342,6 +349,7 @@
   <h1>桌面宠物控制面板</h1>
   <ul id="navList">
     <li><button class="nav-btn active" data-section="overview">概览</button></li>
+    <li><button class="nav-btn" data-section="chat">💬 聊天</button></li>
     <li class="nav-group-label">设置</li>
     <li><button class="nav-btn" data-section="models">模型</button></li>
     <li><button class="nav-btn" data-section="automation">自动化</button></li>
@@ -374,6 +382,86 @@
       <p class="hint" style="margin-top:0;">数据来自 Claude Code 官方的 statusLine 机制（每个会话自己上报上下文占用，5 小时/每周额度是账号级别，所有会话共享同一个数字），不是猜的也不是接的私有接口。</p>
       <div id="claudeUsageSessions"></div>
       <div id="claudeUsageLimits" style="margin-top:14px;"></div>
+    </div>
+  </section>
+
+  <section class="section" id="section-chat">
+    <div class="panel-block">
+      <h3>💬 跟宠物聊天</h3>
+      <div id="chatTabMessages" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: rgba(255,255,255,0.4);"></div>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <input type="text" id="chatTabInput" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false" style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(120,24,32,0.2);">
+        <button id="chatTabVoiceBtn" title="按住说话" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">🎤</button>
+        <button id="chatTabSend" class="btn">发送</button>
+      </div>
+    </div>
+
+    <!-- 下面这两个 panel-block 是从"功能开关"分页迁移过来的语音设置和聊天设置 -->
+    <div class="panel-block">
+      <h3>🎤 语音设置</h3>
+
+      <div class="field-row">
+        <label for="voiceEnabled">启用语音输出与输入</label>
+        <input type="checkbox" id="voiceEnabled">
+      </div>
+      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
+
+      <div class="field-row" id="voiceSettingsGroup" style="display: none;">
+        <label for="voiceVolume">语音输出音量</label>
+        <input type="range" id="voiceVolume" min="0" max="1" step="0.1" style="flex:1; max-width:240px;">
+        <span id="voiceVolumeValue" class="hint" style="margin:0;"></span>
+      </div>
+
+      <div class="field-row" id="voiceSettingsGroup2" style="display: none;">
+        <label for="voiceRate">语速</label>
+        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
+        <span id="voiceRateValue" class="hint" style="margin:0;"></span>
+      </div>
+
+      <div class="field-row" id="voiceSettingsGroup3" style="display: none;">
+        <label for="voicePitch">音高</label>
+        <input type="range" id="voicePitch" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
+        <span id="voicePitchValue" class="hint" style="margin:0;"></span>
+      </div>
+
+      <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
+        <label for="voicePushToTalkKey">推送通话快捷键</label>
+        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <h3>💬 聊天设置</h3>
+
+      <div class="field-row">
+        <label for="chatEnabled">启用聊天</label>
+        <input type="checkbox" id="chatEnabled">
+      </div>
+      <p class="hint">用 Alt+A 快捷键或点工具栏打开聊天窗口</p>
+
+      <div class="field-row" id="chatSettingsGroup" style="display: none;">
+        <label for="chatVoiceMode">聊天时启用语音回复</label>
+        <input type="checkbox" id="chatVoiceMode">
+      </div>
+      <p class="hint" id="chatVoiceModeHint" style="display: none;">宠物会用语音读出聊天回复</p>
+
+      <div class="field-row" id="chatSettingsGroup2" style="display: none;">
+        <label for="chatProvider">聊天模型提供商</label>
+        <select id="chatProvider">
+          <option value="ollama">Ollama (本地)</option>
+          <option value="openai-compatible">OpenAI 兼容服务</option>
+        </select>
+      </div>
+
+      <div class="field-row" id="chatOllamaGroup" style="display: none;">
+        <label for="chatOllamaUrl">Ollama 地址</label>
+        <input type="text" id="chatOllamaUrl" placeholder="http://localhost:11434" style="flex:1; min-width:200px;">
+      </div>
+
+      <div class="field-row" id="chatModelGroup" style="display: none;">
+        <label for="chatModel">模型名称</label>
+        <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
+      </div>
     </div>
   </section>
 
@@ -566,73 +654,6 @@
         <button class="btn" id="soundFilePetClear">清除</button>
       </div>
     </div>
-    <div class="panel-block">
-      <h3>🎤 语音设置</h3>
-
-      <div class="field-row">
-        <label for="voiceEnabled">启用语音输出与输入</label>
-        <input type="checkbox" id="voiceEnabled">
-      </div>
-      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
-
-      <div class="field-row" id="voiceSettingsGroup" style="display: none;">
-        <label for="voiceVolume">语音输出音量</label>
-        <input type="range" id="voiceVolume" min="0" max="1" step="0.1" style="flex:1; max-width:240px;">
-        <span id="voiceVolumeValue" class="hint" style="margin:0;"></span>
-      </div>
-
-      <div class="field-row" id="voiceSettingsGroup2" style="display: none;">
-        <label for="voiceRate">语速</label>
-        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
-        <span id="voiceRateValue" class="hint" style="margin:0;"></span>
-      </div>
-
-      <div class="field-row" id="voiceSettingsGroup3" style="display: none;">
-        <label for="voicePitch">音高</label>
-        <input type="range" id="voicePitch" min="0.5" max="2" step="0.1" style="flex:1; max-width:240px;">
-        <span id="voicePitchValue" class="hint" style="margin:0;"></span>
-      </div>
-
-      <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
-        <label for="voicePushToTalkKey">推送通话快捷键</label>
-        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
-      </div>
-    </div>
-
-    <div class="panel-block">
-      <h3>💬 聊天设置</h3>
-
-      <div class="field-row">
-        <label for="chatEnabled">启用聊天</label>
-        <input type="checkbox" id="chatEnabled">
-      </div>
-      <p class="hint">用 Alt+A 快捷键或点工具栏打开聊天窗口</p>
-
-      <div class="field-row" id="chatSettingsGroup" style="display: none;">
-        <label for="chatVoiceMode">聊天时启用语音回复</label>
-        <input type="checkbox" id="chatVoiceMode">
-      </div>
-      <p class="hint" id="chatVoiceModeHint" style="display: none;">宠物会用语音读出聊天回复</p>
-
-      <div class="field-row" id="chatSettingsGroup2" style="display: none;">
-        <label for="chatProvider">聊天模型提供商</label>
-        <select id="chatProvider">
-          <option value="ollama">Ollama (本地)</option>
-          <option value="openai-compatible">OpenAI 兼容服务</option>
-        </select>
-      </div>
-
-      <div class="field-row" id="chatOllamaGroup" style="display: none;">
-        <label for="chatOllamaUrl">Ollama 地址</label>
-        <input type="text" id="chatOllamaUrl" placeholder="http://localhost:11434" style="flex:1; min-width:200px;">
-      </div>
-
-      <div class="field-row" id="chatModelGroup" style="display: none;">
-        <label for="chatModel">模型名称</label>
-        <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
-      </div>
-    </div>
-
     <div class="panel-block">
       <h3>聊天</h3>
       <div class="field-row">
