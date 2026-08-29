@@ -35,27 +35,45 @@ try {
     Write-Json @{ error = 'no SAPI recognizer installed on this machine' }
     exit 1
   }
-  $engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine($chosen)
-  $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
-  $engine.SetInputToDefaultAudioDevice()
 } catch {
   Write-Json @{ error = "init failed: $($_.Exception.Message)" }
   exit 1
 }
 
-# Register-ObjectEvent's subscription (and its backing job) keeps the
-# PowerShell runspace alive even after the script body finishes -- it
-# must be explicitly unregistered before exit, or the process just hangs
-# forever with nothing left to do. Capture it by -SourceIdentifier so it
-# can be torn down by name below.
 $subId = 'VoiceSttRecognized'
-Register-ObjectEvent -InputObject $engine -EventName SpeechRecognized -SourceIdentifier $subId -Action {
-  $text = $Event.SourceEventArgs.Result.Text
-  if ($text) {
-    [Console]::Out.WriteLine((ConvertTo-Json @{ text = $text } -Compress))
-    [Console]::Out.Flush()
+$script:engine = $null
+
+# Builds a fresh engine and only *now* claims the microphone
+# (SetInputToDefaultAudioDevice actually opens the capture device -- this
+# must not happen until a START is in hand, or the header comment's promise
+# above is broken and the mic stays claimed for the helper's entire
+# lifetime instead of just the start/stop window).
+function New-SttEngine {
+  $e = New-Object System.Speech.Recognition.SpeechRecognitionEngine($chosen)
+  $e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+  $e.SetInputToDefaultAudioDevice()
+  Register-ObjectEvent -InputObject $e -EventName SpeechRecognized -SourceIdentifier $subId -Action {
+    $text = $Event.SourceEventArgs.Result.Text
+    if ($text) {
+      [Console]::Out.WriteLine((ConvertTo-Json @{ text = $text } -Compress))
+      [Console]::Out.Flush()
+    }
+  } | Out-Null
+  return $e
+}
+
+# Tears the engine all the way down (not just RecognizeAsyncStop) so the
+# audio device is actually released between a STOP and the next START,
+# rather than staying open-but-idle for the rest of the process's life.
+function Remove-SttEngine {
+  if ($script:engine) {
+    try { $script:engine.RecognizeAsyncStop() } catch {}
+    Unregister-Event -SourceIdentifier $subId -ErrorAction SilentlyContinue
+    Get-Job -Name $subId -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+    try { $script:engine.Dispose() } catch {}
+    $script:engine = $null
   }
-} | Out-Null
+}
 
 $running = $false
 while ($true) {
@@ -66,13 +84,19 @@ while ($true) {
   switch ($cmd) {
     'START' {
       if (-not $running) {
-        $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-        $running = $true
+        try {
+          $script:engine = New-SttEngine
+          $script:engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+          $running = $true
+        } catch {
+          Write-Json @{ error = "start failed: $($_.Exception.Message)" }
+          Remove-SttEngine
+        }
       }
     }
     'STOP' {
       if ($running) {
-        $engine.RecognizeAsyncStop()
+        Remove-SttEngine
         $running = $false
       }
     }
@@ -80,10 +104,7 @@ while ($true) {
   }
 }
 
-if ($running) { $engine.RecognizeAsyncStop() }
-Unregister-Event -SourceIdentifier $subId -ErrorAction SilentlyContinue
-Get-Job -Name $subId -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
-$engine.Dispose()
+Remove-SttEngine
 
 # Belt and suspenders: force the process to actually end even if some
 # other lingering handle/subscription would otherwise keep the runspace
