@@ -59,6 +59,19 @@ contextBridge.exposeInMainWorld('dash', {
   onChatComplete: (cb) => ipcRenderer.on('pet:chat-complete', (_e, data) => cb(data)),
   voicePptStart: () => ipcRenderer.send('pet:voice-ppt-start'),
   voicePptStop: () => ipcRenderer.send('pet:voice-ppt-stop'),
+  voiceCallModeToggle: () => ipcRenderer.send('pet:voice-call-mode-toggle'),
+  onVoiceCallModeState: (cb) => ipcRenderer.on('pet:voice-call-mode-state', (_e, data) => cb(data)),
   onVoiceTranscript: (cb) => ipcRenderer.on('pet:voice-transcript', (_e, text) => cb(text)),
   onVoiceError: (cb) => ipcRenderer.on('pet:voice-error', (_e, data) => cb(data)),
+
+  // Conversation history parity with the pet window's own chat panel --
+  // same channels, main.js already replies to whichever window sent these.
+  requestChatConvList: () => ipcRenderer.send('pet:chat-conv-list-request'),
+  switchChatConv: (id) => ipcRenderer.send('pet:chat-conv-switch', id),
+  newChatConv: () => ipcRenderer.send('pet:chat-conv-new'),
+  deleteChatConv: (id) => ipcRenderer.send('pet:chat-conv-delete', id),
+  onChatConvList: (cb) => ipcRenderer.on('pet:chat-conv-list', (_e, data) => cb(data)),
+  onChatHistory: (cb) => ipcRenderer.on('pet:chat-history', (_e, data) => cb(data)),
+  captureScreenshot: () => ipcRenderer.invoke('pet:capture-screenshot'),
+  chatSendWithImage: (text, imageBase64) => ipcRenderer.send('pet:chat-send-with-image', { text, imageBase64 }),
 });

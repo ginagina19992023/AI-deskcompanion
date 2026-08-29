@@ -615,13 +615,19 @@ ipcMain.on('pet:voice-ppt-start', () => {
 ipcMain.on('pet:voice-ppt-stop', () => {
   voiceSttWatcher?.stop();
 });
-ipcMain.on('pet:voice-call-mode-toggle', () => {
+ipcMain.on('pet:voice-call-mode-toggle', (e) => {
   if (!cfg.voice?.enabled) return;
   voiceCallModeActive = !voiceCallModeActive;
   startVoiceStt();
   if (voiceCallModeActive) voiceSttWatcher?.start();
   else voiceSttWatcher?.stop();
-  if (alive()) win.webContents.send('pet:voice-call-mode-state', { active: voiceCallModeActive });
+  // Call mode is a single global toggle (one STT watcher, not one per
+  // window), but only the window that actually asked for the state
+  // change needs telling -- same BrowserWindow.fromWebContents routing
+  // as pet:chat-send, since hardcoding `win` here meant Dashboard could
+  // never see its own toggle take effect.
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (senderWin && !senderWin.isDestroyed()) senderWin.webContents.send('pet:voice-call-mode-state', { active: voiceCallModeActive });
 });
 
 ipcMain.on('pet:camera-frame-response', (_e, { requestId, base64, error } = {}) => {
@@ -1959,7 +1965,7 @@ function dashboardSnapshot() {
       voiceRate: cfg.voice?.rate ?? 1.0,
       voicePitch: cfg.voice?.pitch ?? 1.0,
       voiceVoiceName: cfg.voice?.voiceName ?? '',
-      voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'F9',
+      voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'Alt+G',
       chatEnabled: !!cfg.chat?.enabled,
       musicNodEnabled: !!cfg.musicNod?.enabled,
       pomodoroDurationMin: cfg.pomodoro?.durationMin ?? 25,
@@ -2183,6 +2189,14 @@ ipcMain.handle('pet:config', () => {
     claudeStatus: activityCfg,
     aiActivity: activityCfg,
     screenTips: cfg.screenTips ?? { enabled: false },
+    // Was missing entirely -- cfg.voice?.enabled/pushToTalkKey read in
+    // renderer.js always evaluated to undefined regardless of what
+    // config.json actually said, silently disabling push-to-talk (button
+    // and keyboard shortcut both) on the pet window's own chat panel from
+    // the moment voice settings were introduced. dashboardSnapshot() (the
+    // Dashboard's equivalent fetch) already included this; this endpoint
+    // just never got the same field added.
+    voice: cfg.voice ?? { enabled: false },
     sounds: soundsPayload(),
     gestures: cfg.gestures ?? {},
     toggles: { statusBubbleEnabled, tipBubbleEnabled, randomActionsEnabled, wanderEnabled: wanderEnabled() },
@@ -3051,7 +3065,12 @@ const CHAT_CONTEXT_MESSAGES = 16; // most recent messages of the *current* conv 
 // first line out of the streamed deltas, use it to trigger a pose+emoji on
 // the pet, and strip it before the tag ever reaches a chat bubble, saved
 // conversation history, or memory extraction.
-const EMOTION_TAG_RE = /^\[EMOTION:(happy|sad|angry|surprised|neutral)\]\s*\n?/i;
+// \s* after the colon and before the closing bracket -- confirmed live
+// that the model sometimes writes "[EMOTION: neutral]" (space after the
+// colon) despite the instruction saying not to; the original strict
+// pattern didn't match that, so the whole raw tag fell through to both
+// the display bubble and TTS instead of being stripped.
+const EMOTION_TAG_RE = /^\[EMOTION:\s*(happy|sad|angry|surprised|neutral)\s*\]\s*\n?/i;
 const EMOTION_EMOJI = { happy: '😊', sad: '😔', angry: '😠', surprised: '😲', neutral: null };
 
 function saveChatConvs() {
@@ -3172,15 +3191,17 @@ ipcMain.handle('pet:capture-screenshot', async () => {
 // text-only model, but keeps the same persona/memory system prompt and
 // conversation-history plumbing as a normal chat send, so it reads as the
 // same character continuing the same conversation, not a different bot.
-ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) => {
-  if (typeof text !== 'string' || !text.trim() || !imageBase64 || !alive()) return;
+ipcMain.on('pet:chat-send-with-image', async (e, { text, imageBase64 } = {}) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  const replyAlive = () => senderWin && !senderWin.isDestroyed();
+  if (typeof text !== 'string' || !text.trim() || !imageBase64 || !replyAlive()) return;
   if (chatRequestInFlight) {
-    win.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
+    senderWin.webContents.send('pet:chat-error', { message: '上一条还在回复中，请等它说完。' });
     return;
   }
   const visionCfg = cfg.screenTips ?? {};
   if (!visionCfg.model) {
-    win.webContents.send('pet:chat-error', { message: '没配置视觉模型（设置里"模型"页的屏幕提示模型），没法看图回答。' });
+    senderWin.webContents.send('pet:chat-error', { message: '没配置视觉模型（设置里"模型"页的屏幕提示模型），没法看图回答。' });
     return;
   }
   chatRequestInFlight = true;
@@ -3203,9 +3224,7 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
   try {
     // Check if voice mode is enabled to pass voice config for TTS
     const voiceConfig = cfg.chat?.voiceMode ? cfg.voice : null;
-    // Same emotion-tag buffering as pet:chat-send, see the comment there --
-    // this path (screenshot Q&A) sends to `win` directly, not senderWin,
-    // same as the rest of this handler already did before this change.
+    // Same emotion-tag buffering as pet:chat-send, see the comment there.
     let introBuffer = '';
     let introResolved = false;
     const rawFull = await streamChatReply(effectiveCfg, context, (delta) => {
@@ -3221,6 +3240,10 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
             outDelta = introBuffer.slice(match[0].length);
             const row = pet.emotionRows?.[emotion];
             const emoji = EMOTION_EMOJI[emotion];
+            // Emotion reaction always plays on the pet's own floating
+            // window (it's the only one rendering the sprite), regardless
+            // of which window sent this message -- same reasoning as
+            // pet:chat-send's identical line.
             if (alive() && (row !== undefined || emoji)) {
               win.webContents.send('pet:chat-emotion', { emotion, emoji, row });
             }
@@ -3231,21 +3254,21 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
           outDelta = '';
         }
       }
-      if (outDelta && alive()) win.webContents.send('pet:chat-delta', { text: outDelta });
+      if (outDelta && replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: outDelta });
       // If voice mode enabled, send delta for TTS processing
-      if (voiceConfig && outDelta && alive()) {
-        win.webContents.send('pet:chat-speak-delta', { delta: outDelta, voiceConfig });
+      if (voiceConfig && outDelta && replyAlive()) {
+        senderWin.webContents.send('pet:chat-speak-delta', { delta: outDelta, voiceConfig });
       }
     });
     const full = rawFull.replace(EMOTION_TAG_RE, '');
     // Signal completion for any remaining buffered speech
-    if (voiceConfig && alive()) {
-      win.webContents.send('pet:chat-complete', { text: full });
+    if (voiceConfig && replyAlive()) {
+      senderWin.webContents.send('pet:chat-complete', { text: full });
     }
     conv.messages.push({ role: 'assistant', content: full, ts: Date.now() });
     conv.updatedAt = Date.now();
     saveChatConvs();
-    if (alive()) win.webContents.send('pet:chat-message-done', { text: full });
+    if (replyAlive()) senderWin.webContents.send('pet:chat-message-done', { text: full });
     // Same shared history the ambient screen tips use, so this is browsable
     // from the 记录 page too -- the pet's actual reply (real analysis of
     // the real image) is what gets saved as the entry text, not a generic
@@ -3256,32 +3279,42 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
     extractMemoryFacts(userText, full, cfg.chat ?? {});
   } catch (err) {
     if (cfg.debug) console.error('[chat-image]', err.message);
-    if (alive()) win.webContents.send('pet:chat-error', { message: err.message });
+    if (replyAlive()) senderWin.webContents.send('pet:chat-error', { message: err.message });
   } finally {
     chatRequestInFlight = false;
   }
 });
 
-ipcMain.on('pet:chat-conv-list-request', () => {
-  if (alive()) win.webContents.send('pet:chat-conv-list', { convs: convListSummary() });
+// Conversation state (chatConvs/curConvId) is shared global state -- one
+// conversation, regardless of whether the pet's own floating panel or the
+// Dashboard's chat tab is the one switching/deleting/creating it -- but
+// the *response* must go back to whichever window actually asked, same
+// fix as pet:chat-send (see BrowserWindow.fromWebContents there for why
+// hardcoding `win` broke Dashboard callers).
+ipcMain.on('pet:chat-conv-list-request', (e) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (senderWin && !senderWin.isDestroyed()) senderWin.webContents.send('pet:chat-conv-list', { convs: convListSummary() });
 });
 
-ipcMain.on('pet:chat-conv-switch', (_e, id) => {
+ipcMain.on('pet:chat-conv-switch', (e, id) => {
   if (!chatConvs.some((c) => c.id === id)) return;
   curConvId = id;
-  if (alive()) win.webContents.send('pet:chat-history', { messages: curConv().messages });
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (senderWin && !senderWin.isDestroyed()) senderWin.webContents.send('pet:chat-history', { messages: curConv().messages });
 });
 
-ipcMain.on('pet:chat-conv-new', () => {
+ipcMain.on('pet:chat-conv-new', (e) => {
   newConv();
-  if (alive()) win.webContents.send('pet:chat-history', { messages: [] });
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (senderWin && !senderWin.isDestroyed()) senderWin.webContents.send('pet:chat-history', { messages: [] });
 });
 
-ipcMain.on('pet:chat-conv-delete', (_e, id) => {
+ipcMain.on('pet:chat-conv-delete', (e, id) => {
   chatConvs = chatConvs.filter((c) => c.id !== id);
   if (curConvId === id) curConvId = chatConvs.length ? chatConvs[chatConvs.length - 1].id : null;
   saveChatConvs();
-  if (alive()) win.webContents.send('pet:chat-conv-list', { convs: convListSummary() });
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (senderWin && !senderWin.isDestroyed()) senderWin.webContents.send('pet:chat-conv-list', { convs: convListSummary() });
 });
 
 // The renderer already blocks sending a second message while one is in

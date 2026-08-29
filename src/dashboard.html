@@ -341,7 +341,18 @@
   .chat-tab-msg.assistant { background: rgba(0, 0, 0, 0.05); margin-right: auto; }
   .chat-tab-msg.error { background: rgba(200, 40, 40, 0.15); color: rgba(160, 20, 20, 0.9); margin-right: auto; font-size: 13px; }
   #chatTabVoiceBtn.listening { background: rgba(255, 100, 100, 0.3); border-color: rgba(255, 100, 100, 0.8); animation: chatTabPulse 0.5s infinite; }
+  #chatTabVoiceBtn.recognizing { background: rgba(196, 138, 46, 0.25); border-color: rgba(196, 138, 46, 0.6); }
+  #chatTabCallModeBtn.active { background: rgba(80, 160, 100, 0.3); border-color: rgba(80, 160, 100, 0.8); }
   @keyframes chatTabPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  .chat-tab-conv-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  .chat-tab-conv-item:hover { background: rgba(120, 24, 32, 0.08); }
+  .chat-tab-conv-item.active { background: rgba(120, 24, 32, 0.14); }
+  .chat-tab-conv-item-text { flex: 1; min-width: 0; }
+  .chat-tab-conv-item-title { font-size: 12.5px; font-weight: 600; color: rgba(40, 16, 20, 0.92); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-tab-conv-item-sub { font-size: 11px; color: rgba(40, 16, 20, 0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-tab-conv-item-del { border: none; background: transparent; color: rgba(40, 16, 20, 0.4); font-size: 12px; cursor: pointer; padding: 2px 5px; flex: 0 0 auto; }
+  .chat-tab-conv-item-del:hover { color: rgba(120, 24, 32, 0.9); }
+  .chat-tab-conv-empty { text-align: center; font-size: 12px; color: rgba(40, 16, 20, 0.5); padding: 20px 0; }
 </style>
 </head>
 <body>
@@ -387,11 +398,23 @@
 
   <section class="section" id="section-chat">
     <div class="panel-block">
-      <h3>💬 跟宠物聊天</h3>
-      <div id="chatTabMessages" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: rgba(255,255,255,0.4);"></div>
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h3 style="margin: 0;">💬 跟宠物聊天</h3>
+        <div style="display: flex; gap: 4px;">
+          <button id="chatTabHistBtn" class="btn" title="历史对话" aria-label="历史对话" style="padding: 4px 10px;">🕘</button>
+          <button id="chatTabNewBtn" class="btn" title="新对话" aria-label="新对话" style="padding: 4px 10px;">✚</button>
+        </div>
+      </div>
+      <div id="chatTabMessages" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 12px; margin: 10px 0 12px; background: rgba(255,255,255,0.4);"></div>
+      <div id="chatTabConvList" style="display: none; max-height: 400px; overflow-y: auto; border: 1px solid rgba(120,24,32,0.15); border-radius: 8px; padding: 6px 8px; margin: 10px 0 12px; background: rgba(255,255,255,0.4);"></div>
+      <div id="chatTabScreenshotChip" style="display: none; align-items: center; gap: 6px; margin-bottom: 8px; padding: 5px 9px; border-radius: 8px; background: rgba(196,138,46,0.15); border: 1px solid rgba(196,138,46,0.4); font-size: 11px; color: rgba(40,16,20,0.85);">
+        📷 已附上截图，问点什么吧 <button id="chatTabScreenshotChipClear" style="border:none; background:transparent; cursor:pointer; margin-left:auto; color: rgba(120,24,32,0.8);">✕</button>
+      </div>
       <div style="display: flex; gap: 6px; align-items: center;">
+        <button id="chatTabScreenshotBtn" title="截屏问他" aria-label="截屏问他" style="flex: 0 0 auto; border: 1px solid rgba(120,24,32,0.35); border-radius: 8px; background: rgba(255,255,255,0.7); font-size: 13px; padding: 8px 10px; cursor: pointer;">📸</button>
         <input type="text" id="chatTabInput" placeholder="跟他说点什么…" autocomplete="off" spellcheck="false" style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(120,24,32,0.2);">
-        <button id="chatTabVoiceBtn" title="按住说话" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">🎤</button>
+        <button id="chatTabVoiceBtn" title="点一下开始/停止说话，或按住说话" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">🎤</button>
+        <button id="chatTabCallModeBtn" title="持续监听模式：开启后不用按按钮，说完一句自动识别，再说下一句" style="background: transparent; border: 1px solid rgba(100,100,100,0.3); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 16px;">📞</button>
         <button id="chatTabSend" class="btn">发送</button>
       </div>
     </div>
@@ -404,7 +427,7 @@
         <label for="voiceEnabled">启用语音输出与输入</label>
         <input type="checkbox" id="voiceEnabled">
       </div>
-      <p class="hint">宠物可以说话，你也可以按 F9 用麦克风讲话</p>
+      <p class="hint">宠物可以说话，你也可以按下面设置的快捷键用麦克风讲话</p>
 
       <div class="field-row" id="voiceSettingsGroup" style="display: none;">
         <label for="voiceVolume">语音输出音量</label>
@@ -424,9 +447,17 @@
         <span id="voicePitchValue" class="hint" style="margin:0;"></span>
       </div>
 
+      <div class="field-row" id="voiceSettingsGroup5" style="display: none;">
+        <label for="voiceVoiceNameSelect">发声音色</label>
+        <select id="voiceVoiceNameSelect" style="flex:1; max-width:280px;">
+          <option value="">（系统默认）</option>
+        </select>
+      </div>
+      <p class="hint" id="voiceVoiceNameHint" style="display: none;">列表来自本机 Windows 系统自带的语音包；系统默认经常是女声，想要男声角色配男声，从这里选一个名字含"男"或 Male 的试听效果</p>
+
       <div class="field-row" id="voiceSettingsGroup4" style="display: none;">
         <label for="voicePushToTalkKey">推送通话快捷键</label>
-        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 F9" style="width:120px;">
+        <input type="text" id="voicePushToTalkKey" placeholder="按键名，如 Alt+G 或 F9" style="width:120px;">
       </div>
     </div>
 

@@ -1267,48 +1267,113 @@ window.pet.onScreenTip((tip) => {
   }
 });
 
-// Voice input button handlers (🎤 button in chat panel)
-let voiceInputActive = false;
+// Voice input: hybrid hold-or-toggle, same pattern phone voice assistants
+// use -- a quick tap starts listening and *stays* listening (tap again to
+// stop), while an actual press-and-hold only listens while held. Without
+// this, a plain hold-to-talk button is easy to misuse (a quick click reads
+// as "no reaction" because release happens before any speech was even
+// captured) and a plain toggle can't be interrupted mid-hold. One shared
+// state machine drives both the 🎤 button and the keyboard shortcut, since
+// starting via one and stopping via the other should just work.
+const PTT_QUICK_CLICK_MS = 350;
+let voicePttListening = false;
+let voicePttToggled = false; // true once a quick tap converted an active session into "stays on until tapped again"
+let voicePttDownAt = 0;
 
-if (chatVoiceInputEl) {
-  chatVoiceInputEl.addEventListener('mousedown', () => {
-    if (!cfg.voice?.enabled) return;
-    voiceInputActive = true;
-    chatVoiceInputEl.classList.add('listening');
-    window.pet.voicePptStart();
-  });
-
-  chatVoiceInputEl.addEventListener('mouseup', () => {
-    voiceInputActive = false;
-    chatVoiceInputEl.classList.remove('listening');
-    window.pet.voicePptStop();
-  });
+function pttSetVisual(on) {
+  if (chatVoiceInputEl) chatVoiceInputEl.classList.toggle('listening', on);
 }
 
-// Voice STT: push-to-talk key binding. F9 by default, configurable.
-// On keydown, send START to the STT helper; on keyup, send STOP.
-// Show listening state on the voice button when in chat panel.
-window.addEventListener('keydown', (e) => {
-  const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
-  if (e.key === pttKey && cfg.voice?.enabled && !e.repeat) {
-    if (chatPanelOpen && chatVoiceInputEl) {
-      voiceInputActive = true;
-      chatVoiceInputEl.classList.add('listening');
-    }
+function pttPress() {
+  if (!cfg.voice?.enabled) return;
+  voicePttDownAt = performance.now();
+  if (!voicePttListening) {
+    voicePttListening = true;
+    pttSetVisual(true);
     window.pet.voicePptStart();
   }
-});
+  // Already listening (toggled-on): this press is the "about to stop"
+  // click/key -- resolved on release below, nothing to do here.
+}
 
-window.addEventListener('keyup', (e) => {
-  const pttKey = cfg.voice?.pushToTalkKey ?? 'F9';
-  if (e.key === pttKey && cfg.voice?.enabled) {
-    if (chatVoiceInputEl) {
-      voiceInputActive = false;
-      chatVoiceInputEl.classList.remove('listening');
-    }
+function pttRelease() {
+  if (!voicePttListening) return;
+  if (voicePttToggled) {
+    // A fresh press+release while toggled-on always stops it, regardless
+    // of how long this particular press was held.
+    voicePttListening = false;
+    voicePttToggled = false;
+    pttSetVisual(false);
     window.pet.voicePptStop();
+    return;
   }
-});
+  if (performance.now() - voicePttDownAt < PTT_QUICK_CLICK_MS) {
+    // Quick tap from idle -- keep listening, switch into toggled mode.
+    voicePttToggled = true;
+    return;
+  }
+  // Genuine hold, now released -- stop.
+  voicePttListening = false;
+  pttSetVisual(false);
+  window.pet.voicePptStop();
+}
+
+if (chatVoiceInputEl) {
+  // Reflect the actually-configured key, not a hardcoded one -- this is
+  // user-changeable in the dashboard, and a stale hint is worse than none.
+  chatVoiceInputEl.title = `点一下开始/停止说话，或按住 ${cfg.voice?.pushToTalkKey ?? 'Alt+G'} 说话`;
+  chatVoiceInputEl.addEventListener('mousedown', pttPress);
+  chatVoiceInputEl.addEventListener('mouseup', pttRelease);
+}
+
+// Voice STT: push-to-talk key binding, configurable (default Alt+G).
+// Supports plain keys ("F9") and modifier combos ("Alt+G") -- a bare
+// e.key comparison can't express a combo (KeyboardEvent.key for pressing
+// Alt+G is just "g" or "G", with the Alt press reported separately via
+// e.altKey), so parse the configured string into required modifier flags
+// plus a base key and check those against the event explicitly. Note
+// this can never match a physical Fn-key combo (e.g. "Fn+F1") -- Fn is
+// intercepted by the keyboard's own firmware on virtually every laptop
+// and never reaches the OS/browser as a detectable modifier at all.
+function matchesPttKey(e, pttKeyStr) {
+  const parts = String(pttKeyStr || '').split('+').map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return false;
+  const baseKey = parts[parts.length - 1].toLowerCase();
+  const mods = new Set(parts.slice(0, -1).map((p) => p.toLowerCase()));
+  if (mods.has('alt') !== e.altKey) return false;
+  if (mods.has('ctrl') !== e.ctrlKey) return false;
+  if (mods.has('shift') !== e.shiftKey) return false;
+  if (mods.has('meta') !== e.metaKey) return false;
+  return e.key.toLowerCase() === baseKey;
+}
+
+// Capture phase (the `true` third argument), not bubble -- otherwise this
+// never fires while the chat input has focus: chatPanelInputEl's own
+// keydown handler unconditionally calls e.stopPropagation() on every key
+// (see above), which cuts off the normal bubble-phase window listener
+// before it ever sees the event. Capture-phase listeners run top-down
+// *before* the event reaches its target, so this always sees the key
+// regardless of what any descendant element's handler does afterward --
+// confirmed live: with a bubble-phase listener, Alt+G silently did
+// nothing whenever the chat panel's input box was focused, which is
+// exactly the moment someone would actually want to push-to-talk.
+window.addEventListener(
+  'keydown',
+  (e) => {
+    const pttKey = cfg.voice?.pushToTalkKey ?? 'Alt+G';
+    if (matchesPttKey(e, pttKey) && !e.repeat) pttPress();
+  },
+  true,
+);
+
+window.addEventListener(
+  'keyup',
+  (e) => {
+    const pttKey = cfg.voice?.pushToTalkKey ?? 'Alt+G';
+    if (matchesPttKey(e, pttKey)) pttRelease();
+  },
+  true,
+);
 
 // Voice transcript callback: when chat panel is open, append transcript to input
 // field; otherwise send as a regular chat message like before.

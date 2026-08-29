@@ -175,10 +175,10 @@
     "_what": "宠物开口说话（浏览器自带 speechSynthesis）+ 按键说话/通话模式语音输入（Windows 自带 SAPI）。默认关闭。",
     "enabled": false,
     "voiceName": "",
-    "rate": 1.0,
-    "pitch": 1.0,
-    "volume": 1.0,
-    "pushToTalkKey": "Fn+F1"
+    "rate": 1,
+    "pitch": 1,
+    "volume": 1,
+    "pushToTalkKey": "Alt+G"
   },
   "companion": {
     "_what": "感知 Codex/ChatGPT 桌宠的覆盖层窗口位置。纯只读：只向 Windows 查询窗口矩形，不接触、不注入、不修改 Codex 进程。找不到就安静回落到普通行为。",

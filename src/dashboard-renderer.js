@@ -428,11 +428,15 @@ const voiceVolumeEl = document.getElementById('voiceVolume');
 const voiceRateEl = document.getElementById('voiceRate');
 const voicePitchEl = document.getElementById('voicePitch');
 const voicePushToTalkKeyEl = document.getElementById('voicePushToTalkKey');
+const voiceVoiceNameSelectEl = document.getElementById('voiceVoiceNameSelect');
+const voiceVoiceNameHintEl = document.getElementById('voiceVoiceNameHint');
 const voiceSettingsGroups = [
   document.getElementById('voiceSettingsGroup'),
   document.getElementById('voiceSettingsGroup2'),
   document.getElementById('voiceSettingsGroup3'),
   document.getElementById('voiceSettingsGroup4'),
+  document.getElementById('voiceSettingsGroup5'),
+  voiceVoiceNameHintEl,
 ];
 
 voiceEnabledEl.addEventListener('change', (e) => {
@@ -458,7 +462,39 @@ voicePitchEl.addEventListener('input', (e) => {
 });
 
 voicePushToTalkKeyEl.addEventListener('change', (e) => {
-  window.dash.setSetting('voicePushToTalkKey', e.target.value || 'F9');
+  window.dash.setSetting('voicePushToTalkKey', e.target.value || 'Alt+G');
+});
+
+// speechSynthesis.getVoices() is often empty on first call -- the browser
+// loads voices asynchronously and fires 'voiceschanged' once they're
+// ready, sometimes more than once as different voice sources register.
+// zh voices sorted first since this app is Chinese-first and that's what
+// someone picking a voice here almost always wants to see without
+// scrolling past a long list of English/other-language system voices.
+let pendingVoiceSelection = '';
+function populateVoiceNameSelect() {
+  const voices = window.speechSynthesis?.getVoices() ?? [];
+  if (!voices.length) return;
+  const zh = voices.filter((v) => v.lang?.toLowerCase().startsWith('zh'));
+  const rest = voices.filter((v) => !v.lang?.toLowerCase().startsWith('zh'));
+  voiceVoiceNameSelectEl.replaceChildren();
+  const defaultOpt = document.createElement('option');
+  defaultOpt.value = '';
+  defaultOpt.textContent = '（系统默认）';
+  voiceVoiceNameSelectEl.appendChild(defaultOpt);
+  for (const v of [...zh, ...rest]) {
+    const opt = document.createElement('option');
+    opt.value = v.name;
+    opt.textContent = `${v.name} (${v.lang})`;
+    voiceVoiceNameSelectEl.appendChild(opt);
+  }
+  voiceVoiceNameSelectEl.value = pendingVoiceSelection;
+}
+window.speechSynthesis?.addEventListener('voiceschanged', populateVoiceNameSelect);
+populateVoiceNameSelect();
+
+voiceVoiceNameSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceVoiceName', e.target.value);
 });
 
 // Chat settings handlers
@@ -550,7 +586,9 @@ function renderSettings(settings) {
   document.getElementById('voiceRateValue').textContent = (settings.voiceRate ?? 1.0).toFixed(1);
   voicePitchEl.value = settings.voicePitch ?? 1.0;
   document.getElementById('voicePitchValue').textContent = (settings.voicePitch ?? 1.0).toFixed(1);
-  voicePushToTalkKeyEl.value = settings.voicePushToTalkKey ?? 'F9';
+  voicePushToTalkKeyEl.value = settings.voicePushToTalkKey ?? 'Alt+G';
+  pendingVoiceSelection = settings.voiceVoiceName ?? '';
+  voiceVoiceNameSelectEl.value = pendingVoiceSelection;
   for (const group of voiceSettingsGroups) {
     group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
   }
@@ -576,11 +614,24 @@ const chatTabMessagesEl = document.getElementById('chatTabMessages');
 const chatTabInputEl = document.getElementById('chatTabInput');
 const chatTabSendEl = document.getElementById('chatTabSend');
 const chatTabVoiceBtnEl = document.getElementById('chatTabVoiceBtn');
+const chatTabHistBtnEl = document.getElementById('chatTabHistBtn');
+const chatTabNewBtnEl = document.getElementById('chatTabNewBtn');
+const chatTabConvListEl = document.getElementById('chatTabConvList');
+const chatTabScreenshotBtnEl = document.getElementById('chatTabScreenshotBtn');
+const chatTabScreenshotChipEl = document.getElementById('chatTabScreenshotChip');
+const chatTabScreenshotChipClearEl = document.getElementById('chatTabScreenshotChipClear');
 
 let chatTabPendingBubble = null;
 let chatTabSpeechBuffer = '';
 let chatTabVoiceConfig = null;
 let chatTabLoaded = false;
+let chatTabHistView = false;
+// Mirrors the pet window's chatSendPending guard (see renderer.js) --
+// without it, sending a second message while the first is still
+// streaming silently reassigns chatTabPendingBubble, losing the first
+// bubble's reference and leaving it stuck showing "…" forever.
+let chatTabSendPending = false;
+let chatTabPendingScreenshotBase64 = null;
 
 function appendChatTabMessage(role, text) {
   const div = document.createElement('div');
@@ -589,6 +640,17 @@ function appendChatTabMessage(role, text) {
   chatTabMessagesEl.appendChild(div);
   chatTabMessagesEl.scrollTop = chatTabMessagesEl.scrollHeight;
   return div;
+}
+
+function setChatTabSendPending(pending) {
+  chatTabSendPending = pending;
+  chatTabInputEl.disabled = pending;
+  chatTabSendEl.disabled = pending;
+}
+
+function clearChatTabPendingScreenshot() {
+  chatTabPendingScreenshotBase64 = null;
+  chatTabScreenshotChipEl.style.display = 'none';
 }
 
 async function loadChatTab() {
@@ -601,13 +663,85 @@ async function loadChatTab() {
   }
 }
 
+function showChatTabMessagesView() {
+  chatTabHistView = false;
+  chatTabConvListEl.style.display = 'none';
+  chatTabMessagesEl.style.display = 'block';
+}
+
+function showChatTabHistView() {
+  chatTabHistView = true;
+  chatTabMessagesEl.style.display = 'none';
+  chatTabConvListEl.style.display = 'block';
+  window.dash.requestChatConvList();
+}
+
+function renderChatTabConvList(convs) {
+  chatTabConvListEl.replaceChildren();
+  if (!convs?.length) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-tab-conv-empty';
+    empty.textContent = '还没有历史对话';
+    chatTabConvListEl.appendChild(empty);
+    return;
+  }
+  for (const c of convs) {
+    const row = document.createElement('div');
+    row.className = `chat-tab-conv-item${c.active ? ' active' : ''}`;
+    const textWrap = document.createElement('div');
+    textWrap.className = 'chat-tab-conv-item-text';
+    const title = document.createElement('div');
+    title.className = 'chat-tab-conv-item-title';
+    title.textContent = c.title;
+    const sub = document.createElement('div');
+    sub.className = 'chat-tab-conv-item-sub';
+    sub.textContent = c.subtitle;
+    textWrap.appendChild(title);
+    textWrap.appendChild(sub);
+    const del = document.createElement('button');
+    del.className = 'chat-tab-conv-item-del';
+    del.textContent = '✕';
+    del.title = '删除';
+    row.appendChild(textWrap);
+    row.appendChild(del);
+    row.addEventListener('click', () => {
+      window.dash.switchChatConv(c.id);
+      showChatTabMessagesView();
+    });
+    // Two-step delete, same pattern as the pet window's own history list --
+    // click once to arm, click again within a couple seconds to confirm.
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!del.classList.contains('armed')) {
+        del.classList.add('armed');
+        del.textContent = '确删?';
+        setTimeout(() => {
+          del.classList.remove('armed');
+          del.textContent = '✕';
+        }, 2600);
+        return;
+      }
+      window.dash.deleteChatConv(c.id);
+    });
+    chatTabConvListEl.appendChild(row);
+  }
+}
+
 function sendChatTabMessage() {
+  if (chatTabSendPending) return;
   const text = chatTabInputEl.value.trim();
   if (!text) return;
-  appendChatTabMessage('user', text);
   chatTabInputEl.value = '';
-  chatTabPendingBubble = null;
-  window.dash.chatSend(text);
+  appendChatTabMessage('user', text);
+  chatTabPendingBubble = appendChatTabMessage('assistant', '…');
+  chatTabPendingBubble.classList.add('pending');
+  setChatTabSendPending(true);
+  if (chatTabPendingScreenshotBase64) {
+    window.dash.chatSendWithImage(text, chatTabPendingScreenshotBase64);
+    clearChatTabPendingScreenshot();
+  } else {
+    window.dash.chatSend(text);
+  }
 }
 
 chatTabSendEl.addEventListener('click', sendChatTabMessage);
@@ -615,19 +749,62 @@ chatTabInputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendChatTabMessage();
 });
 
+chatTabHistBtnEl.addEventListener('click', () => {
+  if (chatTabHistView) showChatTabMessagesView();
+  else showChatTabHistView();
+});
+chatTabNewBtnEl.addEventListener('click', () => {
+  window.dash.newChatConv();
+  showChatTabMessagesView();
+});
+window.dash.onChatConvList(({ convs }) => renderChatTabConvList(convs));
+window.dash.onChatHistory(({ messages }) => {
+  chatTabMessagesEl.replaceChildren();
+  for (const m of messages ?? []) {
+    if (m.role === 'user' || m.role === 'assistant') appendChatTabMessage(m.role, m.content);
+  }
+  chatTabPendingBubble = null;
+});
+
+chatTabScreenshotBtnEl.addEventListener('click', async () => {
+  chatTabScreenshotBtnEl.disabled = true;
+  chatTabScreenshotBtnEl.textContent = '…';
+  try {
+    const res = await window.dash.captureScreenshot();
+    if (res.ok) {
+      chatTabPendingScreenshotBase64 = res.imageBase64;
+      chatTabScreenshotChipEl.style.display = 'flex';
+      chatTabInputEl.focus();
+    } else {
+      appendChatTabMessage('error', `截屏失败：${res.error}`);
+    }
+  } finally {
+    chatTabScreenshotBtnEl.disabled = false;
+    chatTabScreenshotBtnEl.textContent = '📸';
+  }
+});
+chatTabScreenshotChipClearEl.addEventListener('click', clearChatTabPendingScreenshot);
+
 window.dash.onChatDelta(({ text }) => {
   if (!chatTabPendingBubble) chatTabPendingBubble = appendChatTabMessage('assistant', '');
+  chatTabPendingBubble.classList.remove('pending');
+  if (chatTabPendingBubble.textContent === '…') chatTabPendingBubble.textContent = '';
   chatTabPendingBubble.textContent += text;
   chatTabMessagesEl.scrollTop = chatTabMessagesEl.scrollHeight;
 });
 
 window.dash.onChatMessageDone(() => {
   chatTabPendingBubble = null;
+  setChatTabSendPending(false);
 });
 
 window.dash.onChatError(({ message }) => {
+  if (chatTabPendingBubble) {
+    chatTabPendingBubble.remove();
+    chatTabPendingBubble = null;
+  }
   appendChatTabMessage('error', message);
-  chatTabPendingBubble = null;
+  setChatTabSendPending(false);
 });
 
 window.dash.onChatSpeakDelta(({ delta, voiceConfig }) => {
@@ -646,28 +823,97 @@ window.dash.onChatComplete(() => {
   chatTabSpeechBuffer = '';
 });
 
-chatTabVoiceBtnEl.addEventListener('mousedown', () => {
-  chatTabVoiceBtnEl.classList.add('listening');
-  window.dash.voicePptStart();
-});
-chatTabVoiceBtnEl.addEventListener('mouseup', () => {
-  chatTabVoiceBtnEl.classList.remove('listening');
-  window.dash.voicePptStop();
-});
-chatTabVoiceBtnEl.addEventListener('mouseleave', () => {
-  if (chatTabVoiceBtnEl.classList.contains('listening')) {
-    chatTabVoiceBtnEl.classList.remove('listening');
-    window.dash.voicePptStop();
+// Same hybrid hold-or-toggle pattern as the pet window's own 🎤 button
+// (see renderer.js's pttPress/pttRelease) -- a quick tap starts listening
+// and stays on until tapped again, a genuine press-and-hold only listens
+// while held. Kept as an independent copy rather than a shared module
+// since this is a separate window/renderer with its own DOM and its own
+// window.dash bridge instead of window.pet.
+const CHAT_TAB_PTT_QUICK_CLICK_MS = 350;
+let chatTabPttListening = false;
+let chatTabPttToggled = false;
+let chatTabPttDownAt = 0;
+// True from the moment the mic stops listening until a transcript or
+// error actually arrives -- SAPI's async recognizer can take a couple of
+// seconds to finalize the last utterance after RecognizeAsyncStop(), and
+// with no visible state in between this looked exactly like "recorded it
+// but nothing happened" (confirmed live) until a *second* click's own
+// transcript coincidentally arrived and got mistaken for the first.
+let chatTabPttRecognizing = false;
+
+function chatTabPttSetVisual() {
+  chatTabVoiceBtnEl.classList.toggle('listening', chatTabPttListening);
+  chatTabVoiceBtnEl.classList.toggle('recognizing', !chatTabPttListening && chatTabPttRecognizing);
+  chatTabVoiceBtnEl.title = chatTabPttRecognizing ? '正在识别…' : '点一下开始/停止说话，或按住说话';
+}
+
+function chatTabPttPress() {
+  chatTabPttDownAt = performance.now();
+  if (!chatTabPttListening) {
+    chatTabPttListening = true;
+    chatTabPttRecognizing = false;
+    chatTabPttSetVisual();
+    window.dash.voicePptStart();
   }
+}
+
+function chatTabPttRelease() {
+  if (!chatTabPttListening) return;
+  if (chatTabPttToggled) {
+    chatTabPttListening = false;
+    chatTabPttToggled = false;
+    chatTabPttRecognizing = true;
+    chatTabPttSetVisual();
+    window.dash.voicePptStop();
+    return;
+  }
+  if (performance.now() - chatTabPttDownAt < CHAT_TAB_PTT_QUICK_CLICK_MS) {
+    chatTabPttToggled = true;
+    return;
+  }
+  chatTabPttListening = false;
+  chatTabPttRecognizing = true;
+  chatTabPttSetVisual();
+  window.dash.voicePptStop();
+}
+
+chatTabVoiceBtnEl.addEventListener('mousedown', chatTabPttPress);
+chatTabVoiceBtnEl.addEventListener('mouseup', chatTabPttRelease);
+chatTabVoiceBtnEl.addEventListener('mouseleave', () => {
+  if (chatTabPttListening && !chatTabPttToggled) chatTabPttRelease();
+});
+
+// Call mode: one global always-listening toggle (backed by the same STT
+// watcher push-to-talk uses) instead of holding/tapping the mic button
+// per utterance. While active, the mic button is disabled -- it and call
+// mode both drive the one shared listening state, and pressing it mid-call
+// would just fight the call-mode toggle for control of the same watcher.
+const chatTabCallModeBtnEl = document.getElementById('chatTabCallModeBtn');
+chatTabCallModeBtnEl.addEventListener('click', () => window.dash.voiceCallModeToggle());
+window.dash.onVoiceCallModeState(({ active }) => {
+  chatTabCallModeBtnEl.classList.toggle('active', active);
+  chatTabVoiceBtnEl.disabled = active;
 });
 
 window.dash.onVoiceTranscript((text) => {
+  chatTabPttRecognizing = false;
+  chatTabPttSetVisual();
   if (!text) return;
   const current = chatTabInputEl.value.trim();
-  chatTabInputEl.value = current ? `${current} ${text}` : text;
+  // 🎤 marks this input as (at least partly) voice-recognized, distinct
+  // from typed text, in both the input box and -- since whatever's in the
+  // box at send time becomes the message verbatim -- the resulting chat
+  // bubble too.
+  if (current.startsWith('🎤')) {
+    chatTabInputEl.value = `${current} ${text}`;
+  } else {
+    chatTabInputEl.value = current ? `🎤 ${current} ${text}` : `🎤 ${text}`;
+  }
   chatTabInputEl.focus();
 });
 window.dash.onVoiceError(({ message }) => {
+  chatTabPttRecognizing = false;
+  chatTabPttSetVisual();
   appendChatTabMessage('error', `语音识别出错：${message}`);
 });
 
