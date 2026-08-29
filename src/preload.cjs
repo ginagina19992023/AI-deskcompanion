@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('pet', {
   onChatReply: (fn) => ipcRenderer.on('pet:chat-reply', (_e, d) => fn(d)),
   onChatSpeak: (fn) => ipcRenderer.on('pet:chat-speak-delta', (_e, d) => fn(d)),
   onChatComplete: (fn) => ipcRenderer.on('pet:chat-complete', (_e, d) => fn(d)),
+  onChatEmotion: (fn) => ipcRenderer.on('pet:chat-emotion', (_e, d) => fn(d)),
   onChatConvList: (fn) => ipcRenderer.on('pet:chat-conv-list', (_e, d) => fn(d)),
   onTodos: (fn) => ipcRenderer.on('pet:todos', (_e, d) => fn(d)),
   onTodoPanelReady: (fn) => ipcRenderer.on('pet:todo-panel-ready', (_e, d) => fn(d)),

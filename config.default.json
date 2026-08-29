@@ -294,6 +294,13 @@
         "waiting": 6,
         "error": 5
       },
+      "_emotionRows": "聊天回复情绪→动作行号映射；模型在回复第一行自报情绪（见 chat.js 的 EMOTION_TAG_INSTRUCTION），主进程解析后触发对应动作+头顶emoji。当前先复用已有素材凑数（sad借闭眼鞠躬的低落感，angry借黑鸦啄食本来就带的不悦感），以后美术素材更丰富时可以直接改这里的行号，不用动代码。没写在这里的情绪（如 neutral）只弹emoji不强制动作。",
+      "emotionRows": {
+        "happy": 3,
+        "sad": 7,
+        "angry": 5,
+        "surprised": 4
+      },
       "rowLabels": [
         "待机",
         "化鸦－右走",
@@ -385,6 +392,13 @@
         "review": 8,
         "waiting": 7,
         "error": 5
+      },
+      "_emotionRows": "同塞巴斯蒂安字段说明。夏尔的 angry 直接复用「抱臂不悦敲杖」这个本来就是不悦情绪的行，happy 复用 celebrateRow 同一行（吩咐塞巴斯/受吻，全库最有戏剧性的动作）。",
+      "emotionRows": {
+        "happy": 3,
+        "sad": 8,
+        "angry": 5,
+        "surprised": 4
       },
       "rowLabels": [
         "手杖站姿",

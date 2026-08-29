@@ -18,6 +18,16 @@
 const DEFAULT_SYSTEM_PROMPT =
   'You are a desktop pet companion. Reply in Chinese, in character, in one or two short sentences -- this is a small chat bubble, not an essay.';
 
+// Appended to every chat system prompt so the model self-tags its emotional
+// tone as the very first line of its reply -- piggybacks on the existing
+// single streaming call instead of a second classification request, which
+// would double latency/cost for something this app's config comments
+// repeatedly treat as a hard constraint (see the 40-55s non-streaming
+// measurement above). main.js's chat handlers parse and strip this line
+// before it ever reaches the display bubble.
+export const EMOTION_TAG_INSTRUCTION =
+  '\n\n在你的回复最开头单独一行，用方括号标注你此刻的情绪，格式严格为 [EMOTION:xxx]，xxx 只能是以下之一（英文小写）：happy, sad, angry, surprised, neutral。这一行之后另起一行才是你真正对用户说的话。';
+
 async function readNdjsonStream(res, onLine) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

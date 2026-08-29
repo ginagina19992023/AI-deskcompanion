@@ -1393,6 +1393,49 @@ window.pet.onBeat(() => {
   if (noteParticles.length > 12) noteParticles.shift(); // safety cap regardless of lifetime
 });
 
+// Chat-emotion emoji reaction: one emoji per chat reply, pops up above the
+// head with a small bounce then drifts up and fades -- same visual
+// language as the music-nod note particles above (drawNoteParticles) but a
+// single one-shot spawn instead of a continuous per-beat stream.
+const EMOJI_REACT_LIFE_MS = 1600;
+let emojiReactParticles = []; // { x, y, vy, char, bornMs }
+
+function spawnEmojiReaction(char) {
+  emojiReactParticles.push({
+    x: canvas.width * 0.5,
+    y: canvas.height * 0.12,
+    vy: -(0.02 + Math.random() * 0.01) * dpr,
+    char,
+    bornMs: performance.now(),
+  });
+  if (emojiReactParticles.length > 4) emojiReactParticles.shift();
+}
+
+function drawEmojiReactParticles(now) {
+  if (emojiReactParticles.length === 0) return;
+  emojiReactParticles = emojiReactParticles.filter((p) => now - p.bornMs < EMOJI_REACT_LIFE_MS);
+  g.save();
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  for (const p of emojiReactParticles) {
+    const age = now - p.bornMs;
+    const t = age / EMOJI_REACT_LIFE_MS;
+    // Bounce-in over the first 200ms (scale 0.3 -> 1.15 -> 1.0), hold, then fade over the last 30%.
+    let scale;
+    if (age < 200) {
+      const bt = age / 200;
+      scale = bt < 0.7 ? 0.3 + (1.15 - 0.3) * (bt / 0.7) : 1.15 - 0.15 * ((bt - 0.7) / 0.3);
+    } else {
+      scale = 1.0;
+    }
+    const alpha = t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3);
+    g.globalAlpha = alpha;
+    g.font = `${Math.round(22 * scale * dpr)}px "Segoe UI Emoji", "Microsoft YaHei", sans-serif`;
+    g.fillText(p.char, p.x, p.y + p.vy * age);
+  }
+  g.restore();
+}
+
 window.pet.onMusicComment(({ text } = {}) => {
   if (!text) return;
   speechLine = text;
@@ -1438,6 +1481,17 @@ function playAnimationRow(row) {
 }
 
 window.pet.onPlayRow(({ row }) => playAnimationRow(row));
+
+// Chat-reply emotion reaction: the model self-tags its tone (see chat.js's
+// EMOTION_TAG_INSTRUCTION), main.js parses/strips that tag and forwards
+// here. `row` may be undefined (emotion has no pose mapping yet for this
+// pet -- config.default.json's emotionRows is deliberately sparse and
+// meant to grow as more art gets made) -- still show the emoji even
+// without a pose in that case.
+window.pet.onChatEmotion(({ emotion, emoji, row } = {}) => {
+  if (typeof row === 'number') playAnimationRow(row);
+  if (emoji) spawnEmojiReaction(emoji);
+});
 
 window.pet.onPlaySpin(() => {
   const before = currentRect();
@@ -2463,6 +2517,7 @@ function render() {
   drawTodoBadge();
   drawContextRings(nowMs);
   drawNoteParticles(nowMs);
+  drawEmojiReactParticles(nowMs);
 
   updateBubbles();
 }

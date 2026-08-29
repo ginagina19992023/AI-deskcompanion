@@ -11,7 +11,7 @@ import { createCompanionWatcher } from './companion-watcher.js';
 import { createScreenTipWatcher, captureAndDescribe, captureCroppedScreenshot } from './screen-tip.js';
 import { createCameraSenseWatcher } from './camera-sense.js';
 import { createVoiceSttWatcher } from './voice-stt.js';
-import { streamChatReply } from './chat.js';
+import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
 import { connectOutlookAccount, disconnectOutlookAccount, getOutlookAccountStatus, syncOnce as syncOutlookOnce, deleteOutlookTask } from './outlook-sync.js';
 import { startPomodoro, pomodoroRemainingMs } from './pomodoro.js';
@@ -3043,6 +3043,15 @@ let curConvId = chatConvs.length ? chatConvs[chatConvs.length - 1].id : null;
 const CHAT_CONVS_MAX = 100; // conversations kept
 const CHAT_CONTEXT_MESSAGES = 16; // most recent messages of the *current* conv sent to the model
 
+// Chat-reply emotion reaction (see chat.js's EMOTION_TAG_INSTRUCTION): the
+// model self-tags its tone as the first line of its reply, e.g.
+// "[EMOTION:happy]\n<actual reply>". Both chat handlers below buffer that
+// first line out of the streamed deltas, use it to trigger a pose+emoji on
+// the pet, and strip it before the tag ever reaches a chat bubble, saved
+// conversation history, or memory extraction.
+const EMOTION_TAG_RE = /^\[EMOTION:(happy|sad|angry|surprised|neutral)\]\s*\n?/i;
+const EMOTION_EMOJI = { happy: '😊', sad: '😔', angry: '😠', surprised: '😲', neutral: null };
+
 function saveChatConvs() {
   if (chatConvs.length > CHAT_CONVS_MAX) chatConvs = chatConvs.slice(-CHAT_CONVS_MAX);
   saveJsonArray(chatConvsPath, chatConvs);
@@ -3181,7 +3190,7 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
   saveChatConvs();
   const pet = activePet();
   const basePrompt = pet.chatSystemPrompt ?? cfg.chat?.systemPrompt;
-  const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : visionCfg.systemPrompt };
+  const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${EMOTION_TAG_INSTRUCTION}` : `${visionCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
   // Recent text history for continuity, then this turn WITH the image
   // attached -- only the current message carries pixels, older turns stay
   // text-only (Ollama attaches images per-message, not per-conversation).
@@ -3192,13 +3201,41 @@ ipcMain.on('pet:chat-send-with-image', async (_e, { text, imageBase64 } = {}) =>
   try {
     // Check if voice mode is enabled to pass voice config for TTS
     const voiceConfig = cfg.chat?.voiceMode ? cfg.voice : null;
-    const full = await streamChatReply(effectiveCfg, context, (delta) => {
-      if (alive()) win.webContents.send('pet:chat-delta', { text: delta });
+    // Same emotion-tag buffering as pet:chat-send, see the comment there --
+    // this path (screenshot Q&A) sends to `win` directly, not senderWin,
+    // same as the rest of this handler already did before this change.
+    let introBuffer = '';
+    let introResolved = false;
+    const rawFull = await streamChatReply(effectiveCfg, context, (delta) => {
+      let outDelta = delta;
+      if (!introResolved) {
+        introBuffer += delta;
+        const hasNewline = introBuffer.includes('\n');
+        if (hasNewline || introBuffer.length > 60) {
+          introResolved = true;
+          const match = introBuffer.match(EMOTION_TAG_RE);
+          if (match) {
+            const emotion = match[1].toLowerCase();
+            outDelta = introBuffer.slice(match[0].length);
+            const row = pet.emotionRows?.[emotion];
+            const emoji = EMOTION_EMOJI[emotion];
+            if (alive() && (row !== undefined || emoji)) {
+              win.webContents.send('pet:chat-emotion', { emotion, emoji, row });
+            }
+          } else {
+            outDelta = introBuffer; // model didn't follow the tag format -- pass through as-is
+          }
+        } else {
+          outDelta = '';
+        }
+      }
+      if (outDelta && alive()) win.webContents.send('pet:chat-delta', { text: outDelta });
       // If voice mode enabled, send delta for TTS processing
-      if (voiceConfig && alive()) {
-        win.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
+      if (voiceConfig && outDelta && alive()) {
+        win.webContents.send('pet:chat-speak-delta', { delta: outDelta, voiceConfig });
       }
     });
+    const full = rawFull.replace(EMOTION_TAG_RE, '');
     // Signal completion for any remaining buffered speech
     if (voiceConfig && alive()) {
       win.webContents.send('pet:chat-complete', { text: full });
@@ -3783,18 +3820,54 @@ ipcMain.on('pet:chat-send', async (e, text) => {
   saveChatConvs();
   const pet = activePet();
   const basePrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
-  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}` : chatCfg.systemPrompt };
+  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${EMOTION_TAG_INSTRUCTION}` : `${chatCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
   try {
     // Check if voice mode is enabled to pass voice config for TTS
     const voiceConfig = chatCfg.voiceMode ? cfg.voice : null;
-    const full = await streamChatReply(effectiveCfg, context, (delta) => {
-      if (replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: delta });
+    // Buffer the reply's first line so the model's self-tagged [EMOTION:xxx]
+    // (see chat.js's EMOTION_TAG_INSTRUCTION, appended to effectiveCfg above)
+    // never reaches the display bubble or TTS -- withheld from onDelta's
+    // output until a newline closes the tag line, or a safety-valve length
+    // is hit in case the model doesn't follow the format (which would
+    // otherwise stall all output waiting for a newline that never comes).
+    let introBuffer = '';
+    let introResolved = false;
+    const rawFull = await streamChatReply(effectiveCfg, context, (delta) => {
+      let outDelta = delta;
+      if (!introResolved) {
+        introBuffer += delta;
+        const hasNewline = introBuffer.includes('\n');
+        if (hasNewline || introBuffer.length > 60) {
+          introResolved = true;
+          const match = introBuffer.match(EMOTION_TAG_RE);
+          if (match) {
+            const emotion = match[1].toLowerCase();
+            outDelta = introBuffer.slice(match[0].length);
+            const row = pet.emotionRows?.[emotion];
+            const emoji = EMOTION_EMOJI[emotion];
+            if (alive() && (row !== undefined || emoji)) {
+              win.webContents.send('pet:chat-emotion', { emotion, emoji, row });
+            }
+          } else {
+            outDelta = introBuffer; // model didn't follow the tag format -- pass through as-is
+          }
+        } else {
+          outDelta = ''; // still buffering the possible tag line, nothing to show yet
+        }
+      }
+      if (outDelta && replyAlive()) senderWin.webContents.send('pet:chat-delta', { text: outDelta });
       // If voice mode enabled, send delta for TTS processing
-      if (voiceConfig && replyAlive()) {
-        senderWin.webContents.send('pet:chat-speak-delta', { delta, voiceConfig });
+      if (voiceConfig && outDelta && replyAlive()) {
+        senderWin.webContents.send('pet:chat-speak-delta', { delta: outDelta, voiceConfig });
       }
     });
+    // streamChatReply's returned string is built from the raw deltas
+    // regardless of what onDelta forwarded, so it still carries the
+    // [EMOTION:xxx] line -- strip it here too before it lands in saved
+    // history, the TTS-completion signal, the final bubble text, or memory
+    // extraction (all of which use this value, not the streamed deltas).
+    const full = rawFull.replace(EMOTION_TAG_RE, '');
     // Signal completion for any remaining buffered speech
     if (voiceConfig && replyAlive()) {
       senderWin.webContents.send('pet:chat-complete', { text: full });
