@@ -2402,8 +2402,6 @@ ipcMain.handle('dashboard:get-edge-voices', () => ({
     { name: 'zh-CN-YunxiNeural', label: '云希 (活泼，小说朗读风)' },
     { name: 'zh-CN-YunxiaNeural', label: '云霞 (可爱，动画风)' },
     { name: 'zh-CN-YunyangNeural', label: '云阳 (专业，新闻播报风)' },
-    { name: 'zh-CN-YunfengNeural', label: '云风 (稳重，叙事风)' },
-    { name: 'zh-CN-YunhaoNeural', label: '云浩 (磁性，电台风)' },
   ],
 }));
 ipcMain.handle('dashboard:chat-get-history', () => ({ messages: curConv().messages }));
