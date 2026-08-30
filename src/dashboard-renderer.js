@@ -676,7 +676,9 @@ const voiceRateEl = document.getElementById('voiceRate');
 const voicePitchEl = document.getElementById('voicePitch');
 const voicePushToTalkKeyEl = document.getElementById('voicePushToTalkKey');
 const voiceVoiceNameSelectEl = document.getElementById('voiceVoiceNameSelect');
+const voiceVoiceNameGroupEl = document.getElementById('voiceSettingsGroup5');
 const voiceVoiceNameHintEl = document.getElementById('voiceVoiceNameHint');
+const voiceVoiceNameNonSapiHintEl = document.getElementById('voiceVoiceNameNonSapiHint');
 const voiceSttEngineSelectEl = document.getElementById('voiceSttEngineSelect');
 const voiceSttEngineHintEl = document.getElementById('voiceSttEngineHint');
 const voiceTtsEngineSelectEl = document.getElementById('voiceTtsEngineSelect');
@@ -689,15 +691,27 @@ const voiceSettingsGroups = [
   document.getElementById('voiceSettingsGroup2'),
   document.getElementById('voiceSettingsGroup3'),
   document.getElementById('voiceSettingsGroup4'),
-  document.getElementById('voiceSettingsGroup5'),
   document.getElementById('voiceSettingsGroupTts'),
   document.getElementById('voiceSettingsGroup6'),
   document.getElementById('voiceSettingsGroup7'),
-  voiceVoiceNameHintEl,
   voiceTtsEngineHintEl,
   voiceSttEngineHintEl,
   voiceCpuModeHintEl,
 ];
+
+// The "发声音色" row only means anything for the sapi engine -- piper's
+// voice comes from whichever model file is configured, edge-cloud's from
+// voice.edge.voiceName, neither of which this dropdown touches. Showing it
+// regardless of engine is exactly what produced the "I picked an engine
+// AND a voice, neither seems to matter" confusion, so its visibility
+// tracks the engine selection instead of just the blanket voiceEnabled
+// toggle the rest of voiceSettingsGroups uses.
+function updateVoiceNameGroupVisibility() {
+  const show = voiceEnabledEl.checked && voiceTtsEngineSelectEl.value === 'sapi';
+  voiceVoiceNameGroupEl.style.display = show ? 'block' : 'none';
+  voiceVoiceNameHintEl.style.display = show ? 'block' : 'none';
+  voiceVoiceNameNonSapiHintEl.style.display = voiceEnabledEl.checked && !show ? 'block' : 'none';
+}
 
 voiceEnabledEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceEnabled', e.target.checked);
@@ -705,6 +719,7 @@ voiceEnabledEl.addEventListener('change', (e) => {
     group.style.display = e.target.checked ? 'block' : 'none';
   }
   updateTtsEnginePiperWarning();
+  updateVoiceNameGroupVisibility();
 });
 
 voiceVolumeEl.addEventListener('input', (e) => {
@@ -771,6 +786,7 @@ function updateTtsEnginePiperWarning() {
 voiceTtsEngineSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceTtsEngine', e.target.value);
   updateTtsEnginePiperWarning();
+  updateVoiceNameGroupVisibility();
 });
 
 voiceCpuModeEl.addEventListener('change', (e) => {
@@ -903,6 +919,7 @@ function renderSettings(settings) {
     group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
   }
   updateTtsEnginePiperWarning();
+  updateVoiceNameGroupVisibility();
 
   // Populate chat settings
   chatEnabledEl.checked = !!settings.chatEnabled;

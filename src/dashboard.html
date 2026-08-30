@@ -717,14 +717,6 @@
         <span id="voicePitchValue" class="hint" style="margin:0;"></span>
       </div>
 
-      <div class="field-row" id="voiceSettingsGroup5" style="display: none;">
-        <label for="voiceVoiceNameSelect">发声音色</label>
-        <select id="voiceVoiceNameSelect" style="flex:1; max-width:280px;">
-          <option value="">（系统默认）</option>
-        </select>
-      </div>
-      <p class="hint" id="voiceVoiceNameHint" style="display: none;">列表来自本机 Windows 系统自带的语音包；系统默认经常是女声，想要男声角色配男声，从这里选一个名字含"男"或 Male 的试听效果</p>
-
       <div class="field-row" id="voiceSettingsGroupTts" style="display: none;">
         <label for="voiceTtsEngineSelect">朗读引擎</label>
         <select id="voiceTtsEngineSelect" style="flex:1; max-width:280px;">
@@ -735,6 +727,15 @@
       </div>
       <p class="hint" id="voiceTtsEngineHint" style="display: none;">选了会优先用这个引擎；失败会自动降级——Edge 联网失败退回 Piper（如果配置了），Piper 没配置模型或出错退回 SAPI，不会卡住不出声。Piper 需要先运行 tools/piper/setup-piper.ps1 下载模型。</p>
       <p class="hint" id="voiceTtsEnginePiperWarning" style="display: none; color: #c4304a;">⚠ 还没检测到 Piper 语音模型，选它会自动退回 SAPI，先运行 tools/piper/setup-piper.ps1 下载模型</p>
+
+      <div class="field-row" id="voiceSettingsGroup5" style="display: none;">
+        <label for="voiceVoiceNameSelect">发声音色</label>
+        <select id="voiceVoiceNameSelect" style="flex:1; max-width:280px;">
+          <option value="">（系统默认）</option>
+        </select>
+      </div>
+      <p class="hint" id="voiceVoiceNameHint" style="display: none;">列表来自本机 Windows 系统自带的语音包（仅对上面的 SAPI 引擎生效）；系统默认经常是女声，想要男声从这里选一个名字含"男"或 Male 的试听效果</p>
+      <p class="hint" id="voiceVoiceNameNonSapiHint" style="display: none;">当前引擎不是 SAPI，这个音色选项不生效——Piper 的音色由所配置的模型文件决定（tools/piper/setup-piper.ps1 下载的是哪个模型就是哪个音色），Edge 云端的音色需要在 config.json 的 voice.edge.voiceName 里手动指定（默认 zh-CN-YunxiNeural 男声）</p>
 
       <div class="field-row" id="voiceSettingsGroup6" style="display: none;">
         <label for="voiceSttEngineSelect">语音识别引擎</label>

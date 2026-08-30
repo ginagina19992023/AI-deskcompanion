@@ -14,6 +14,7 @@ import { createVoiceSttWatcher } from './voice-stt.js';
 import { createWhisperSttWatcher } from './voice-stt-whisper.js';
 import { synthesizePiper } from './voice-tts-piper.js';
 import { synthesizeEdge } from './voice-tts-edge.js';
+import { synthesizeSapi } from './voice-tts-sapi.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
@@ -589,13 +590,17 @@ function stopCameraSense() {
 }
 
 // Unified TTS resolver: tries the configured engine, falling back down the
-// chain (edge-cloud -> piper -> null) on any failure rather than throwing,
-// so a network hiccup or a never-run setup script never means silence --
-// null tells the renderer "use the browser's own speechSynthesis instead",
-// which is always available with zero setup. 'sapi' itself never reaches
-// this function at all (see pet:synthesize-speech below) -- the renderer
-// just calls its existing local speak() directly, unchanged from before
-// this feature existed.
+// chain (edge-cloud -> piper -> sapi -> null) on any failure rather than
+// throwing, so a network hiccup or a never-run setup script never means
+// silence. The final 'sapi' rung -- also the direct path when the engine
+// is 'sapi' to begin with -- synthesizes via Windows' own SAPI voices to a
+// file ourselves rather than handing voice selection to the renderer's
+// browser speechSynthesis: confirmed live, Chromium on Windows silently
+// ignores SpeechSynthesisUtterance.voice for anything but the OS default,
+// so switching "音色" in the dashboard had no audible effect at all.
+// Driving System.Speech directly from here sidesteps that entirely. Only
+// if even that fails does this return null, telling the renderer to fall
+// back to its own browser voice as an absolute last resort.
 async function synthesizeSpeechFile(text, voiceCfg) {
   const engine = voiceCfg?.ttsEngine ?? 'sapi';
   if (engine === 'edge-cloud') {
@@ -609,15 +614,25 @@ async function synthesizeSpeechFile(text, voiceCfg) {
     try {
       return await synthesizePiper(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.piper });
     } catch (err) {
-      if (cfg.debug) console.error('[tts] piper failed, falling back to browser voice:', err.message);
+      if (cfg.debug) console.error('[tts] piper failed, falling back:', err.message);
     }
+  }
+  try {
+    return await synthesizeSapi(text, {
+      voiceName: voiceCfg.voiceName,
+      rate: voiceCfg.rate,
+      volume: voiceCfg.volume,
+      scriptPath: join(root, 'tools', 'sapi-tts.ps1'),
+    });
+  } catch (err) {
+    if (cfg.debug) console.error('[tts] sapi failed, falling back to browser voice:', err.message);
   }
   return null;
 }
 
 ipcMain.handle('pet:synthesize-speech', async (_e, text) => {
   const voiceCfg = cfg.voice ?? {};
-  if ((voiceCfg.ttsEngine ?? 'sapi') === 'sapi' || !text) return { fileUrl: null };
+  if (!text) return { fileUrl: null };
   const result = await synthesizeSpeechFile(text, voiceCfg);
   return { fileUrl: result?.filePath ? pathToFileURL(result.filePath).href : null };
 });
