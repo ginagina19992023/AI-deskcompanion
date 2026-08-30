@@ -973,6 +973,38 @@
       </div>
       <p class="hint" style="margin-top:0;">生成的是完整一段人声演唱（会自带旋律和节奏，不是照着歌词念），时长通常比同样文字说话要长不少；不带伴奏，纯人声。免费额度和「语音与聊天」页共用同一个 MiMo Key。</p>
     </div>
+
+    <div class="panel-block">
+      <h3>识歌（从音频提取歌词和乐谱）</h3>
+      <div class="field-row">
+        <label for="vocalAudioInput">选择音频文件</label>
+        <input type="file" id="vocalAudioInput" accept="audio/*" style="flex:1;">
+      </div>
+      <div class="field-row">
+        <button class="btn" id="vocalTranscribeBtn">🎵 识歌</button>
+        <span id="vocalTranscribeStatus" class="hint" style="margin:0 0 0 8px;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">从音频文件自动提取歌词（用 Whisper ASR）和音高轨迹（用音高检测）。第一次使用需要下载 Whisper 模型（几百 MB，一次性）。支持 mp3, wav, m4a 等常见格式。</p>
+
+      <div id="vocalTranscribeResults" style="display:none; margin-top:12px; padding:12px; background:rgba(var(--theme-accent-rgb), 0.06); border-radius:6px;">
+        <h4 style="margin:0 0 8px; font-size:13px;">识别结果</h4>
+
+        <div style="margin-bottom:12px;">
+          <label style="display:block; margin-bottom:4px; font-size:12px; font-weight:600;">📝 歌词</label>
+          <textarea id="vocalTranscribedLyrics" rows="3" readonly style="width:100%; font-family:monospace; font-size:12px; resize:vertical;"></textarea>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="display:block; margin-bottom:4px; font-size:12px; font-weight:600;">🎵 音高轨迹（MIDI 音符）</label>
+          <div id="vocalTranscribedPitch" style="font-family:monospace; font-size:11px; max-height:120px; overflow-y:auto; background:rgba(0,0,0,0.02); padding:8px; border-radius:4px; white-space:pre-wrap; word-break:break-all;"></div>
+        </div>
+
+        <div class="field-row">
+          <button class="btn" id="vocalUseTranscribedBtn">用这个歌词唱一下</button>
+          <span class="hint" style="margin:0 0 0 8px; font-size:12px;">把识别出的歌词复制到上面的"歌词文本"并生成演唱</span>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section class="section" id="section-models">

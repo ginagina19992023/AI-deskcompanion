@@ -89,4 +89,5 @@ contextBridge.exposeInMainWorld('dash', {
   synthesizeSpeech: (text) => ipcRenderer.invoke('pet:synthesize-speech', text),
   synthesizeSong: (lyrics, voice) => ipcRenderer.invoke('pet:synthesize-song', { lyrics, voice }),
   chatSendWithImage: (text, imageBase64) => ipcRenderer.send('pet:chat-send-with-image', { text, imageBase64 }),
+  transcribeSinging: (audioPath) => ipcRenderer.invoke('dashboard:transcribe-singing', audioPath),
 });

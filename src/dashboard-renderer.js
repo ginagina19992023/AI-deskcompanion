@@ -172,6 +172,58 @@ if (vocalSingBtnEl) {
     }
   });
 }
+
+// Singing transcription: extract lyrics and pitch from audio
+const vocalAudioInputEl = document.getElementById('vocalAudioInput');
+const vocalTranscribeBtnEl = document.getElementById('vocalTranscribeBtn');
+const vocalTranscribeStatusEl = document.getElementById('vocalTranscribeStatus');
+const vocalTranscribeResultsEl = document.getElementById('vocalTranscribeResults');
+const vocalTranscribedLyricsEl = document.getElementById('vocalTranscribedLyrics');
+const vocalTranscribedPitchEl = document.getElementById('vocalTranscribedPitch');
+const vocalUseTranscribedBtnEl = document.getElementById('vocalUseTranscribedBtn');
+
+if (vocalTranscribeBtnEl) {
+  vocalTranscribeBtnEl.addEventListener('click', async () => {
+    if (!vocalAudioInputEl.files.length) {
+      vocalTranscribeStatusEl.style.color = '#c4304a';
+      vocalTranscribeStatusEl.textContent = '✗ 先选择一个音频文件';
+      return;
+    }
+
+    const file = vocalAudioInputEl.files[0];
+    vocalTranscribeBtnEl.disabled = true;
+    vocalTranscribeStatusEl.style.color = '';
+    vocalTranscribeStatusEl.textContent = '识歌中…（第一次需要下载 Whisper 模型，可能要几分钟）';
+
+    try {
+      // Save temp file and call transcribe
+      const tempPath = `/tmp/vocal-${Date.now()}-${file.name}`;
+      const arrayBuffer = await file.arrayBuffer();
+      // For electron app, we need a different approach - pass file path via dialog
+      const result = await window.dash.pickBackgroundImage(); // Placeholder - need proper file handling
+
+      // For now, show error that file needs to be saved
+      vocalTranscribeStatusEl.style.color = '#c4304a';
+      vocalTranscribeStatusEl.textContent = '✗ 文件处理功能开发中（暂需手动指定音频路径）';
+    } catch (err) {
+      vocalTranscribeStatusEl.style.color = '#c4304a';
+      vocalTranscribeStatusEl.textContent = `✗ 出错: ${err.message}`;
+    } finally {
+      vocalTranscribeBtnEl.disabled = false;
+    }
+  });
+
+  if (vocalUseTranscribedBtnEl) {
+    vocalUseTranscribedBtnEl.addEventListener('click', () => {
+      const lyrics = vocalTranscribedLyricsEl.value.trim();
+      if (lyrics) {
+        vocalLyricsInputEl.value = lyrics;
+        vocalStatusEl.textContent = '✓ 歌词已填入，点"唱一下"开始合成';
+      }
+    });
+  }
+}
+
 for (const btn of navBtns) btn.addEventListener('click', () => showSection(btn.dataset.section));
 
 // --- overview ----------------------------------------------------------

@@ -728,6 +728,67 @@ ipcMain.handle('pet:synthesize-song', async (_e, { lyrics, voice } = {}) => {
   }
 });
 
+// Singing transcription: extract lyrics and pitch from audio using Whisper + librosa
+ipcMain.handle('dashboard:transcribe-singing', async (_e, audioPath) => {
+  if (!audioPath || !existsSync(audioPath)) {
+    return { error: '音频文件不存在' };
+  }
+
+  try {
+    const scriptPath = join(dirname(__dirname), 'tools', 'whisper-transcribe.py');
+    if (!existsSync(scriptPath)) {
+      return { error: '转录脚本不存在，请检查 tools/whisper-transcribe.py' };
+    }
+
+    return new Promise((resolve) => {
+      const proc = spawn('python', [scriptPath, audioPath], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 120000, // 2 minute timeout for Whisper
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          if (stderr) {
+            try {
+              const errJson = JSON.parse(stderr);
+              resolve({ error: errJson.error });
+            } catch {
+              resolve({ error: stderr });
+            }
+          } else {
+            resolve({ error: `转录失败 (code ${code})` });
+          }
+          return;
+        }
+
+        try {
+          const result = JSON.parse(stdout);
+          resolve(result);
+        } catch (err) {
+          resolve({ error: `解析结果失败: ${err.message}` });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ error: `启动转录进程失败: ${err.message}` });
+      });
+    });
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 function startVoiceStt() {
   if (voiceSttWatcher) return;
   const onTranscript = (text) => {
