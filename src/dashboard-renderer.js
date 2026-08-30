@@ -5,7 +5,7 @@
 // window is opened deliberately and briefly, not something that needs to
 // track live state the whole time it's open.
 
-import { ATLAS, BASE_ROWS } from './atlas.js';
+import { ATLAS, BASE_ROWS, ROW_FRAME_COUNTS } from './atlas.js';
 import { isOverdue, parseTodoInput } from './todos.js';
 import { speak } from './voice-tts.js';
 
@@ -2326,6 +2326,184 @@ async function refreshCharacters() {
   renderPetPacks(data.pets, data.activePet);
   renderActionMapping(data.actionMapping);
 }
+
+// --- character request generator ------------------------------------
+// Purely local document/prompt generation -- no AI call of its own. The
+// checklist mirrors this app's actual fixed sprite-sheet contract (see
+// atlas.js: every pet pack must lay out exactly this row order to load),
+// pre-filled so a new-character request starts from what the app really
+// needs rather than a blank list the user has to reconstruct from scratch.
+const DEFAULT_ACTION_CHECKLIST = [
+  { label: 'IDLE 待机', desc: '静止不动时的呼吸感循环动作' },
+  { label: 'RUN_RIGHT 向右移动', desc: '向右走/跑的循环动作' },
+  { label: 'RUN_LEFT 向左移动', desc: '向左走/跑的循环动作' },
+  { label: 'WAVING 挥手', desc: '打招呼、挥手示意' },
+  { label: 'JUMPING 跳跃', desc: '跳起来的动作' },
+  { label: 'PECK 专注做事', desc: '埋头认真干活/啄食一类的专注动作' },
+  { label: 'WAITING 等待', desc: '张望、等待中的小动作' },
+  { label: 'DOZE 打盹', desc: '犯困、打瞌睡的动作' },
+  { label: 'REVIEW 审阅思考', desc: '思考、审视的姿态' },
+  { label: 'TURN_A 转头看向镜头（前半段）', desc: '头部从 0° 转到 157.5° 的连续帧' },
+  { label: 'TURN_B 转头看向镜头（后半段）', desc: '头部从 180° 转到 337.5° 的连续帧' },
+  { label: 'PERCH 栖息（可选）', desc: '抓握/栖息的静态姿势' },
+  { label: 'LIE_DOWN 侧躺休息（可选）', desc: '侧躺着呼吸的休息动作' },
+].map((item, i) => ({ ...item, frames: ROW_FRAME_COUNTS[i] ?? 6 }));
+
+let charReqImages = [];
+let charReqChecklist = DEFAULT_ACTION_CHECKLIST.map((item) => ({ ...item }));
+
+const charReqDescriptionEl = document.getElementById('charReqDescription');
+const charReqPickImagesBtnEl = document.getElementById('charReqPickImagesBtn');
+const charReqImagesHintEl = document.getElementById('charReqImagesHint');
+const charReqImageGridEl = document.getElementById('charReqImageGrid');
+const charReqChecklistEl = document.getElementById('charReqChecklist');
+const charReqAddRowBtnEl = document.getElementById('charReqAddRowBtn');
+const charReqGenerateBtnEl = document.getElementById('charReqGenerateBtn');
+const charReqGenerateHintEl = document.getElementById('charReqGenerateHint');
+const charReqResultEl = document.getElementById('charReqResult');
+const charReqDocPathEl = document.getElementById('charReqDocPath');
+const charReqPromptOutputEl = document.getElementById('charReqPromptOutput');
+const charReqCopyPromptBtnEl = document.getElementById('charReqCopyPromptBtn');
+
+function renderCharReqImages() {
+  charReqImageGridEl.replaceChildren();
+  for (const img of charReqImages) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.padding = '6px';
+    const thumb = document.createElement('img');
+    thumb.src = img.url;
+    thumb.style.cssText = 'width:100%; height:80px; object-fit:cover; border-radius:4px; display:block;';
+    const name = document.createElement('div');
+    name.className = 'hint';
+    name.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    name.textContent = img.name;
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn';
+    removeBtn.textContent = '移除';
+    removeBtn.style.marginTop = '4px';
+    removeBtn.addEventListener('click', () => {
+      charReqImages = charReqImages.filter((x) => x.path !== img.path);
+      renderCharReqImages();
+    });
+    card.appendChild(thumb);
+    card.appendChild(name);
+    card.appendChild(removeBtn);
+    charReqImageGridEl.appendChild(card);
+  }
+  charReqImagesHintEl.textContent = charReqImages.length ? `已选 ${charReqImages.length}/5 张` : '';
+}
+
+charReqPickImagesBtnEl.addEventListener('click', async () => {
+  if (charReqImages.length >= 5) {
+    charReqImagesHintEl.textContent = '最多 5 张，先移除几张再加';
+    return;
+  }
+  const res = await window.dash.pickCharacterImages();
+  if (!res.ok) return;
+  const existingPaths = new Set(charReqImages.map((x) => x.path));
+  for (const img of res.images) {
+    if (charReqImages.length >= 5) break;
+    if (existingPaths.has(img.path)) continue;
+    charReqImages.push(img);
+  }
+  renderCharReqImages();
+});
+
+function renderCharReqChecklist() {
+  charReqChecklistEl.replaceChildren();
+  charReqChecklist.forEach((item, i) => {
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    row.style.flexWrap = 'wrap';
+
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.value = item.label;
+    labelInput.style.cssText = 'flex:0 0 220px;';
+    labelInput.addEventListener('input', () => { item.label = labelInput.value; });
+
+    const framesInput = document.createElement('input');
+    framesInput.type = 'number';
+    framesInput.min = '1';
+    framesInput.value = String(item.frames);
+    framesInput.style.cssText = 'flex:0 0 70px;';
+    framesInput.title = '帧数';
+    framesInput.addEventListener('input', () => { item.frames = Math.max(1, Number(framesInput.value) || 1); });
+
+    const descInput = document.createElement('input');
+    descInput.type = 'text';
+    descInput.value = item.desc;
+    descInput.placeholder = '这个动作的具体描述';
+    descInput.style.cssText = 'flex:1; min-width:200px;';
+    descInput.addEventListener('input', () => { item.desc = descInput.value; });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn';
+    delBtn.textContent = '删除';
+    delBtn.addEventListener('click', () => {
+      charReqChecklist = charReqChecklist.filter((x) => x !== item);
+      renderCharReqChecklist();
+    });
+
+    row.appendChild(labelInput);
+    row.appendChild(framesInput);
+    row.appendChild(descInput);
+    row.appendChild(delBtn);
+    charReqChecklistEl.appendChild(row);
+  });
+}
+renderCharReqChecklist();
+
+charReqAddRowBtnEl.addEventListener('click', () => {
+  charReqChecklist.push({ label: '新动作', frames: 6, desc: '' });
+  renderCharReqChecklist();
+});
+
+function buildCharacterPrompt(description, checklist) {
+  const totalHeight = checklist.length * ATLAS.cellH;
+  const rowLines = checklist
+    .map((item, i) => `Row ${i + 1} (${item.frames} frames): ${item.label} -- ${item.desc || '(no description)'}`)
+    .join('\n');
+  return `Create a character sprite sheet, exactly ${ATLAS.cellW * ATLAS.cols}x${totalHeight}px, arranged in ${ATLAS.cols} columns x ${checklist.length} rows, each cell exactly ${ATLAS.cellW}x${ATLAS.cellH}px, transparent PNG background. Keep the character's proportions, colors, and design fully consistent across every frame and every row.
+
+Character description: ${description || '(see reference images)'}
+
+Row-by-row action sequences, top to bottom:
+${rowLines}
+
+Match the style of the attached reference image(s) as closely as possible.`;
+}
+
+charReqGenerateBtnEl.addEventListener('click', async () => {
+  charReqGenerateBtnEl.disabled = true;
+  charReqGenerateHintEl.textContent = '生成中…';
+  try {
+    const description = charReqDescriptionEl.value.trim();
+    const promptText = buildCharacterPrompt(description, charReqChecklist);
+    const res = await window.dash.generateCharacterDoc({
+      description,
+      imagePaths: charReqImages.map((img) => img.path),
+      checklist: charReqChecklist,
+      promptText,
+    });
+    if (!res.ok) {
+      charReqGenerateHintEl.textContent = res.error || '生成失败';
+      return;
+    }
+    charReqDocPathEl.value = res.docPath;
+    charReqPromptOutputEl.value = promptText;
+    charReqResultEl.style.display = 'block';
+    charReqGenerateHintEl.textContent = '已生成';
+  } finally {
+    charReqGenerateBtnEl.disabled = false;
+  }
+});
+
+charReqCopyPromptBtnEl.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(charReqPromptOutputEl.value);
+  charReqGenerateHintEl.textContent = '已复制';
+});
 
 importPackBtnEl.addEventListener('click', async () => {
   importPackErrorEl.textContent = '';

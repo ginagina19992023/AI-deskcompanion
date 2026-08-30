@@ -1031,6 +1031,38 @@
       <p class="hint" style="margin-top:0;">Claude、Codex、DeepSeek、Kimi 等 AI 在动手做 / 只是在看 / 等你批准 / 出错时，宠物分别摆出哪个姿势（雪碧图里的第几行）。改了要重启一下才生效。</p>
       <div id="actionMappingList"></div>
     </div>
+
+    <div class="panel-block" style="margin-top:8px;">
+      <h3>🎨 生成新形象需求</h3>
+      <p class="hint" style="margin-top:0;">描述你想要的角色 + 上传参考图，生成一份需求文档和一段可以直接复制给 AI 图片生成工具的提示词，同时列出这个雪碧图格式需要的每一行动作——描述可以改，条目可以删/加，改完了再生成。这一步本身不联网、不调用任何 AI，只是帮你把需求整理成能喂给别的工具的格式。</p>
+
+      <div class="field-row"><label for="charReqDescription">角色描述</label></div>
+      <textarea id="charReqDescription" rows="4" style="width:100%; box-sizing:border-box;" placeholder="想要什么样的角色？风格、性格、参考作品都可以写……"></textarea>
+
+      <div style="margin:10px 0;">
+        <button class="btn" id="charReqPickImagesBtn">＋ 添加参考图片（最多 5 张）</button>
+        <span id="charReqImagesHint" class="hint" style="margin-left:8px;"></span>
+      </div>
+      <div id="charReqImageGrid" class="card-grid" style="margin-bottom:10px;"></div>
+
+      <h4 style="margin-bottom:6px;">动作序列清单</h4>
+      <p class="hint" style="margin-top:0;">默认按这个宠物系统的雪碧图格式（8列×N行）列出必需的动作行，可以改描述、删掉不需要的、或者加自定义条目。</p>
+      <div id="charReqChecklist"></div>
+      <button class="btn" id="charReqAddRowBtn" style="margin-top:6px;">＋ 添加一个动作条目</button>
+
+      <div style="margin-top:14px;">
+        <button class="btn primary" id="charReqGenerateBtn">生成需求文档 + 提示词</button>
+        <span id="charReqGenerateHint" class="hint" style="margin-left:8px;"></span>
+      </div>
+
+      <div id="charReqResult" style="display:none; margin-top:14px;">
+        <div class="field-row"><label>文档已保存到</label></div>
+        <input type="text" id="charReqDocPath" readonly style="width:100%; box-sizing:border-box; margin-bottom:10px;">
+        <div class="field-row"><label>提示词（复制给 AI 生成工具）</label></div>
+        <textarea id="charReqPromptOutput" rows="8" readonly style="width:100%; box-sizing:border-box;"></textarea>
+        <button class="btn" id="charReqCopyPromptBtn" style="margin-top:6px;">复制提示词</button>
+      </div>
+    </div>
   </section>
 
   <section class="section" id="section-memory">

@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('dash', {
   renameCustomTheme: (id, name) => ipcRenderer.invoke('dashboard:rename-custom-theme', { id, name }),
   deleteCustomTheme: (id) => ipcRenderer.invoke('dashboard:delete-custom-theme', { id }),
   applyCustomTheme: (id) => ipcRenderer.invoke('dashboard:apply-custom-theme', { id }),
+  pickCharacterImages: () => ipcRenderer.invoke('dashboard:pick-character-images'),
+  generateCharacterDoc: (payload) => ipcRenderer.invoke('dashboard:generate-character-doc', payload),
   pickPetPackFolder: () => ipcRenderer.invoke('dashboard:pick-pet-pack-folder'),
   commitPetPack: (payload) => ipcRenderer.invoke('dashboard:commit-pet-pack', payload),
   setActivePet: (id) => ipcRenderer.invoke('dashboard:set-active-pet', id),

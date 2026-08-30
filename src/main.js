@@ -1,5 +1,5 @@
 import { app, BrowserWindow, screen, ipcMain, Tray, Menu, dialog, nativeImage, globalShortcut, shell } from 'electron';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, copyFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { basename, dirname, isAbsolute, join } from 'node:path';
@@ -1965,6 +1965,79 @@ ipcMain.handle('dashboard:clear-background-image', () => {
   cfg.theme.backgroundImagePath = '';
   persistConfig();
   return { ok: true };
+});
+
+ipcMain.handle('dashboard:pick-character-images', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections'],
+    title: '选择参考图片（最多 5 张）',
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, cancelled: true };
+  const paths = result.filePaths.slice(0, 5);
+  return { ok: true, images: paths.map((p) => ({ path: p, url: pathToFileURL(p).href, name: basename(p) })) };
+});
+
+// Writes a requirements doc + copies the reference images into their own
+// timestamped folder under data/character-requests/ -- this never calls
+// any AI itself (no model, no network): the whole point is a document +
+// copy-pasteable prompt for the user to hand to whatever external image
+// generator they use, plus an editable checklist they've already reviewed
+// client-side (see dashboard-renderer.js's DEFAULT_ACTION_CHECKLIST) by the
+// time this fires.
+ipcMain.handle('dashboard:generate-character-doc', async (_e, { description, imagePaths, checklist, promptText } = {}) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const folder = join(dataDir, 'character-requests', timestamp);
+  const imagesFolder = join(folder, 'images');
+  mkdirSync(imagesFolder, { recursive: true });
+
+  const copiedImages = [];
+  for (const src of imagePaths ?? []) {
+    if (!existsSync(src)) continue;
+    const dest = join(imagesFolder, basename(src));
+    copyFileSync(src, dest);
+    copiedImages.push(dest);
+  }
+
+  const checklistLines = (checklist ?? [])
+    .map((item, i) => `${i + 1}. **${item.label}**（${item.frames} 帧）—— ${item.desc}`)
+    .join('\n');
+
+  const doc = `# 桌面宠物形象生成需求
+
+生成时间：${new Date().toLocaleString('zh-CN')}
+
+## 需求描述
+
+${description || '（未填写）'}
+
+## 参考图片
+
+${copiedImages.length ? copiedImages.map((p) => `- ${basename(p)}`).join('\n') : '（未上传参考图片）'}
+
+图片已复制到本文档同目录下的 images/ 文件夹，发给 AI 生成工具时把这些图片一并附上。
+
+## 技术规格（雪碧图格式，必须严格遵守）
+
+- 整张图尺寸：1536 × ${checklist?.length ? checklist.length * 208 : 2288} 像素
+- 8 列 × ${checklist?.length ?? 11} 行，每格 192 × 208 像素
+- 背景必须透明（PNG，带 alpha 通道）
+- 每一行是一个独立的动作序列，从左到右依次播放
+
+## 动作序列清单（从上到下，第几行对应第几个动作）
+
+${checklistLines || '（清单为空）'}
+
+## 可直接复制给 AI 生成工具的提示词
+
+\`\`\`
+${promptText || ''}
+\`\`\`
+`;
+
+  const docPath = join(folder, 'requirements.md');
+  writeFileSync(docPath, doc, 'utf8');
+  return { ok: true, docPath, imagesFolder };
 });
 
 ipcMain.handle('dashboard:pick-pet-pack-folder', async () => {
