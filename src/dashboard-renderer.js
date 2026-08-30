@@ -842,6 +842,53 @@ voiceEdgeEnglishSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceEdgeEnglishName', e.target.value || '');
 });
 
+// English voice preview
+const voicePreviewEnglishBtnEl = document.getElementById('voicePreviewEnglishBtn');
+if (voicePreviewEnglishBtnEl) {
+  voicePreviewEnglishBtnEl.addEventListener('click', async () => {
+    const voiceName = voiceEdgeEnglishSelectEl.value;
+    if (!voiceName) {
+      alert('Please select an English voice first');
+      return;
+    }
+
+    voicePreviewEnglishBtnEl.disabled = true;
+    voicePreviewEnglishBtnEl.textContent = 'Generating...';
+
+    try {
+      const testText = 'Good evening, my lord. How was your day?';
+      const result = await window.dash.synthesizeSpeech(testText);
+
+      if (result.fileUrl) {
+        const audio = new Audio(result.fileUrl);
+        audio.play();
+        voicePreviewEnglishBtnEl.textContent = 'Playing...';
+
+        audio.onended = () => {
+          voicePreviewEnglishBtnEl.textContent = 'Preview';
+          voicePreviewEnglishBtnEl.disabled = false;
+        };
+
+        setTimeout(() => {
+          if (voicePreviewEnglishBtnEl.textContent === 'Playing...') {
+            voicePreviewEnglishBtnEl.textContent = 'Preview';
+            voicePreviewEnglishBtnEl.disabled = false;
+          }
+        }, 30000);
+      } else {
+        alert('Synthesis failed. Check your network connection.');
+        voicePreviewEnglishBtnEl.textContent = 'Preview';
+        voicePreviewEnglishBtnEl.disabled = false;
+      }
+    } catch (err) {
+      console.error('Voice preview error:', err);
+      alert('Preview error: ' + err.message);
+      voicePreviewEnglishBtnEl.textContent = 'Preview';
+      voicePreviewEnglishBtnEl.disabled = false;
+    }
+  });
+}
+
 voiceEdgeChineseSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceEdgeChineseName', e.target.value || '');
 });
