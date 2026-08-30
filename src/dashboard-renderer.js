@@ -485,12 +485,21 @@ dashWindowOpacityEl.addEventListener('change', () => window.dash.setSetting('das
 // no window-opacity effect at all.
 const dashModuleAlphaEl = document.getElementById('dashModuleAlpha');
 const dashModuleAlphaValueEl = document.getElementById('dashModuleAlphaValue');
+// Storage for preset-specific module alpha (sidebar transparency)
+let themeAlphaStorage = {};
+
 function applyModuleAlpha(v) {
   document.documentElement.style.setProperty('--panel-alpha', v);
   dashModuleAlphaValueEl.textContent = `${Math.round(v * 100)}%`;
 }
 dashModuleAlphaEl.addEventListener('input', () => applyModuleAlpha(Number(dashModuleAlphaEl.value)));
-dashModuleAlphaEl.addEventListener('change', () => window.dash.setSetting('moduleAlpha', Number(dashModuleAlphaEl.value)));
+dashModuleAlphaEl.addEventListener('change', () => {
+  const alpha = Number(dashModuleAlphaEl.value);
+  const currentPreset = dashThemePresetEl.value.startsWith('custom:') ? 'custom' : (dashThemePresetEl.value || 'classic');
+  // Remember this preset's alpha setting
+  themeAlphaStorage[currentPreset] = alpha;
+  window.dash.setSetting('moduleAlpha', alpha);
+});
 
 // Theme preset: sets/clears the [data-theme] attribute the CSS presets in
 // dashboard.html's <style> block key off of -- 'classic' has no preset
@@ -1181,7 +1190,7 @@ const dashThemeRenameBtnEl = document.getElementById('dashThemeRenameBtn');
 const dashThemeDeleteBtnEl = document.getElementById('dashThemeDeleteBtn');
 let customThemesCache = [];
 
-// Map of theme presets to their assistant bubble colors (RGB triplets)
+// Map of theme presets to their assistant bubble colors (RGB triplets) and module alpha
 const THEME_BUBBLE_COLORS = {
   'classic': '0, 0, 0',
   'dark-red': '30, 20, 22',
@@ -1195,12 +1204,32 @@ const THEME_BUBBLE_COLORS = {
   'eva-03-blue': '10, 16, 22',
 };
 
+const THEME_MODULE_ALPHA = {
+  'classic': 0.92,
+  'dark-red': 0.92,
+  'dark-pink': 0.92,
+  'light-pink': 0.88,
+  'cyber-green': 0.95,
+  'liquid-glass': 0.85,
+  'eva-purple': 0.92,
+  'eva-01-green': 0.92,
+  'eva-02-red': 0.92,
+  'eva-03-blue': 0.92,
+};
+
 function applyThemePreset(preset) {
   if (preset && preset !== 'classic') document.documentElement.setAttribute('data-theme', preset);
   else document.documentElement.removeAttribute('data-theme');
   // Sync the assistant bubble color to the pet window so it matches the theme
   const bubbleRgb = THEME_BUBBLE_COLORS[preset] || THEME_BUBBLE_COLORS['classic'];
   window.dash.setSetting('assistantBubbleColor', bubbleRgb);
+  // Load module alpha for this preset (remembers user's last setting for each preset)
+  // Check if user has set a custom alpha for this preset, otherwise use default
+  if (!themeAlphaStorage) themeAlphaStorage = {};
+  const moduleAlpha = themeAlphaStorage[preset] ?? (THEME_MODULE_ALPHA[preset] ?? 0.92);
+  dashModuleAlphaEl.value = String(moduleAlpha);
+  applyModuleAlpha(moduleAlpha);
+  window.dash.setSetting('moduleAlpha', moduleAlpha);
 }
 // Custom-theme <option>s carry a "custom:<id>" value so this handler can
 // tell them apart from the six built-in preset names without needing a
