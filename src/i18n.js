@@ -3,6 +3,22 @@
 
 const translations = {
   zh: {
+    // Page sections
+    sectionOverview: '概览',
+    sectionAppearance: '外观',
+    sectionVoiceChat: '语音与聊天',
+    sectionModels: '模型',
+    sectionAutomation: '自动化',
+    sectionInteraction: '互动细节',
+    sectionShortcuts: '快捷键',
+    sectionCharacter: '形象',
+    sectionMemory: '记忆',
+    sectionGestures: '手势',
+    sectionTodo: '待办',
+    sectionTasks: 'AI 任务',
+    sectionRecords: '记录',
+    sectionReports: '报告',
+
     // Dashboard tabs
     tabSettings: '设置',
     tabChat: '聊天',
@@ -20,9 +36,10 @@ const translations = {
     voiceChinese: '中文音色',
     speechRate: '语速',
     speakingSpeed: '说话速度',
+    voicePreview: '试听',
 
     // Appearance settings
-    sectionAppearance: '外观',
+    sectionAppearanceSettings: '外观',
     uiLanguage: '界面语言',
     languageChinese: '中文',
     languageEnglish: 'English',
@@ -73,6 +90,22 @@ const translations = {
     messageCancel: '取消',
   },
   en: {
+    // Page sections
+    sectionOverview: 'Overview',
+    sectionAppearance: 'Appearance',
+    sectionVoiceChat: 'Voice & Chat',
+    sectionModels: 'Models',
+    sectionAutomation: 'Automation',
+    sectionInteraction: 'Interaction',
+    sectionShortcuts: 'Shortcuts',
+    sectionCharacter: 'Character',
+    sectionMemory: 'Memory',
+    sectionGestures: 'Gestures',
+    sectionTodo: 'Todo',
+    sectionTasks: 'AI Tasks',
+    sectionRecords: 'Records',
+    sectionReports: 'Reports',
+
     // Dashboard tabs
     tabSettings: 'Settings',
     tabChat: 'Chat',
@@ -90,9 +123,10 @@ const translations = {
     voiceChinese: 'Chinese Voice',
     speechRate: 'Speech Rate',
     speakingSpeed: 'Speaking Speed',
+    voicePreview: 'Preview',
 
     // Appearance settings
-    sectionAppearance: 'Appearance',
+    sectionAppearanceSettings: 'Appearance',
     uiLanguage: 'UI Language',
     languageChinese: '中文',
     languageEnglish: 'English',
