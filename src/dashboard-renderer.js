@@ -846,6 +846,57 @@ voiceEdgeChineseSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceEdgeChineseName', e.target.value || '');
 });
 
+// Voice preview functionality
+const voicePreviewChineseBtnEl = document.getElementById('voicePreviewChineseBtn');
+let isPreviewPlaying = false;
+if (voicePreviewChineseBtnEl) {
+  voicePreviewChineseBtnEl.addEventListener('click', async () => {
+    const voiceName = voiceEdgeChineseSelectEl.value;
+    if (!voiceName) {
+      alert('请先选择一个中文音色');
+      return;
+    }
+
+    voicePreviewChineseBtnEl.disabled = true;
+    voicePreviewChineseBtnEl.textContent = '合成中...';
+
+    try {
+      // Use a test sentence (Sebastian's greeting)
+      const testText = '晚上好，少爷。今天过得还算体面吧？';
+      const result = await window.dash.synthesizeSpeech(testText);
+
+      if (result.fileUrl) {
+        // Play the audio
+        const audio = new Audio(result.fileUrl);
+        audio.play();
+        voicePreviewChineseBtnEl.textContent = '播放中...';
+
+        audio.onended = () => {
+          voicePreviewChineseBtnEl.textContent = '试听';
+          voicePreviewChineseBtnEl.disabled = false;
+        };
+
+        // Timeout to restore button state after 30 seconds
+        setTimeout(() => {
+          if (voicePreviewChineseBtnEl.textContent === '播放中...') {
+            voicePreviewChineseBtnEl.textContent = '试听';
+            voicePreviewChineseBtnEl.disabled = false;
+          }
+        }, 30000);
+      } else {
+        alert('合成失败，请检查网络连接');
+        voicePreviewChineseBtnEl.textContent = '试听';
+        voicePreviewChineseBtnEl.disabled = false;
+      }
+    } catch (err) {
+      console.error('Voice preview error:', err);
+      alert('试听出错: ' + err.message);
+      voicePreviewChineseBtnEl.textContent = '试听';
+      voicePreviewChineseBtnEl.disabled = false;
+    }
+  });
+}
+
 voiceSttEngineSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceSttEngine', e.target.value);
 });
