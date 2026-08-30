@@ -1224,12 +1224,16 @@ function applyThemePreset(preset) {
   const bubbleRgb = THEME_BUBBLE_COLORS[preset] || THEME_BUBBLE_COLORS['classic'];
   window.dash.setSetting('assistantBubbleColor', bubbleRgb);
   // Load module alpha for this preset (remembers user's last setting for each preset)
-  // Check if user has set a custom alpha for this preset, otherwise use default
   if (!themeAlphaStorage) themeAlphaStorage = {};
   const moduleAlpha = themeAlphaStorage[preset] ?? (THEME_MODULE_ALPHA[preset] ?? 0.92);
   dashModuleAlphaEl.value = String(moduleAlpha);
   applyModuleAlpha(moduleAlpha);
   window.dash.setSetting('moduleAlpha', moduleAlpha);
+  // Reset accent/text/bg color overrides when switching presets
+  // (so preset's CSS colors are used, not custom overrides from previous preset)
+  accentColorPicker.initFrom('');
+  textColorPicker.initFrom('');
+  bgColorPicker.initFrom('');
 }
 // Custom-theme <option>s carry a "custom:<id>" value so this handler can
 // tell them apart from the six built-in preset names without needing a
