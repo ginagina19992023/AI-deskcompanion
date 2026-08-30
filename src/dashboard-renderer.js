@@ -351,20 +351,63 @@ dashModuleAlphaEl.addEventListener('change', () => window.dash.setSetting('modul
 // as *removing* the attribute rather than a "classic" preset block that
 // would just duplicate those same default values.
 
-// Language setting
+// Language setting with dynamic UI updates
 const uiLanguageSelectEl = document.getElementById('uiLanguageSelect');
+const i18nStrings = {
+  zh: {
+    'voicePreviewChineseBtn': '试听',
+    'voicePreviewEnglishBtn': 'Preview',
+    'voiceEdgeEnglishHint': 'Edge 云端英文神经语音 · 点击「Preview」听样音（测试文本："Good evening, my lord. How was your day?"）',
+    'voiceEdgeChineseHint': 'Edge 云端中文神经语音 · 点击「试听」听样音（测试文本："晚上好，少爷。今天过得还算体面吧？"）',
+  },
+  en: {
+    'voicePreviewChineseBtn': 'Listen',
+    'voicePreviewEnglishBtn': 'Preview',
+    'voiceEdgeEnglishHint': 'Edge cloud English neural voice · Click "Preview" to hear sample ("Good evening, my lord. How was your day?")',
+    'voiceEdgeChineseHint': 'Edge cloud Chinese neural voice · Click "Listen" to hear sample ("Good evening, my lord. How was your day today?")',
+  }
+};
+
+function applyUILanguage(lang) {
+  const strings = i18nStrings[lang] || i18nStrings.zh;
+
+  // Update button texts
+  const btnMap = {
+    'voicePreviewChineseBtn': voicePreviewChineseBtnEl,
+    'voicePreviewEnglishBtn': voicePreviewEnglishBtnEl,
+  };
+
+  for (const [key, el] of Object.entries(btnMap)) {
+    if (el && strings[key]) {
+      el.textContent = strings[key];
+    }
+  }
+
+  // Update hint texts
+  const hintMap = {
+    'voiceEdgeEnglishHint': document.getElementById('voiceEdgeEnglishHint'),
+    'voiceEdgeChineseHint': document.getElementById('voiceEdgeChineseHint'),
+  };
+
+  for (const [key, el] of Object.entries(hintMap)) {
+    if (el && strings[key]) {
+      el.textContent = strings[key];
+    }
+  }
+}
+
 if (uiLanguageSelectEl) {
   uiLanguageSelectEl.addEventListener('change', () => {
     const value = uiLanguageSelectEl.value;
     window.dash.setSetting('uiLanguage', value);
-    // Note: Full UI translation would require reloading. For now, this
-    // saves the preference for next app restart.
+    applyUILanguage(value);
   });
 
   // Initialize from settings
   window.dash.getData().then(data => {
     if (data.settings?.uiLanguage) {
       uiLanguageSelectEl.value = data.settings.uiLanguage;
+      applyUILanguage(data.settings.uiLanguage);
     }
   }).catch(err => console.error('Failed to load UI language setting:', err));
 }
