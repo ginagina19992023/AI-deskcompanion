@@ -14,6 +14,7 @@ import { createVoiceSttWatcher } from './voice-stt.js';
 import { createWhisperSttWatcher } from './voice-stt-whisper.js';
 import { synthesizePiper } from './voice-tts-piper.js';
 import { synthesizeEdge } from './voice-tts-edge.js';
+import { synthesizeChattts } from './voice-tts-chattts.js';
 import { synthesizeSapi } from './voice-tts-sapi.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
@@ -615,6 +616,16 @@ async function synthesizeSpeechFile(text, voiceCfg) {
       return await synthesizePiper(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.piper });
     } catch (err) {
       if (cfg.debug) console.error('[tts] piper failed, falling back:', err.message);
+    }
+  }
+  // ChatTTS: open-source Chinese TTS, good alternative to Piper for Mandarin
+  // (Chinese-optimized, usually better quality than Piper for CJK text).
+  const isChinese = /[一-鿿]/.test(text);
+  if (isChinese) {
+    try {
+      return await synthesizeChattts(text, { pythonPath: voiceCfg.pythonPath || 'python' });
+    } catch (err) {
+      if (cfg.debug) console.error('[tts] chattts failed, falling back:', err.message);
     }
   }
   try {
