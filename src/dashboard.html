@@ -86,12 +86,30 @@
     --skin-rgb: 245, 245, 247;
     --theme-accent-rgb: 0, 122, 255;
     --theme-text-rgb: 51, 51, 51;
-    --theme-assistant-bubble-rgb: 255, 255, 255;
+    --theme-assistant-bubble-rgb: 0, 0, 0;
   }
   :root[data-theme="eva-purple"] {
     --skin-rgb: 26, 20, 35;
     --theme-accent-rgb: 165, 62, 190;
     --theme-text-rgb: 230, 220, 245;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  :root[data-theme="eva-01-green"] {
+    --skin-rgb: 22, 35, 28;
+    --theme-accent-rgb: 76, 175, 80;
+    --theme-text-rgb: 220, 245, 230;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  :root[data-theme="eva-02-red"] {
+    --skin-rgb: 38, 22, 25;
+    --theme-accent-rgb: 210, 50, 60;
+    --theme-text-rgb: 245, 225, 220;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
+  :root[data-theme="eva-03-blue"] {
+    --skin-rgb: 20, 32, 42;
+    --theme-accent-rgb: 33, 150, 243;
+    --theme-text-rgb: 220, 235, 245;
     --theme-assistant-bubble-rgb: 255, 255, 255;
   }
   #main, #sidebar { zoom: var(--ui-scale); }
@@ -624,6 +642,9 @@
           <option value="cyber-green">黑绿赛博（荧光终端绿）</option>
           <option value="liquid-glass">苹果液晶玻璃（浅灰 + 蓝）</option>
           <option value="eva-purple">EVA 绫波（紫罗兰 + 深紫）</option>
+          <option value="eva-01-green">EVA 1号机（草绿 + 青）</option>
+          <option value="eva-02-red">EVA 2号机（深红 + 猩红）</option>
+          <option value="eva-03-blue">EVA 3号机（深蓝 + 天蓝）</option>
           <optgroup label="我的主题" id="dashThemeCustomGroup"></optgroup>
         </select>
       </div>

@@ -521,6 +521,9 @@ const i18nStrings = {
     '经典（暖白 + 酒红）': '经典（暖白 + 酒红）',
     '黑绿赛博（荧光终端绿）': '黑绿赛博（荧光终端绿）',
     'EVA 绫波（紫罗兰 + 深紫）': 'EVA 绫波（紫罗兰 + 深紫）',
+    'EVA 1号机（草绿 + 青）': 'EVA 1号机（草绿 + 青）',
+    'EVA 2号机（深红 + 猩红）': 'EVA 2号机（深红 + 猩红）',
+    'EVA 3号机（深蓝 + 天蓝）': 'EVA 3号机（深蓝 + 天蓝）',
     '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。': '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。',
     '恢复默认': '恢复默认',
   },
@@ -596,6 +599,9 @@ const i18nStrings = {
     '经典（暖白 + 酒红）': 'Classic (Warm White + Wine Red)',
     '黑绿赛博（荧光终端绿）': 'Cyberpunk Black-Green (Neon Terminal)',
     'EVA 绫波（紫罗兰 + 深紫）': 'EVA Ayanami (Violet + Deep Purple)',
+    'EVA 1号机（草绿 + 青）': 'EVA Unit-01 (Grass Green + Cyan)',
+    'EVA 2号机（深红 + 猩红）': 'EVA Unit-02 (Deep Red + Scarlet)',
+    'EVA 3号机（深蓝 + 天蓝）': 'EVA Unit-03 (Deep Blue + Sky Blue)',
     '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。': 'Changes apply immediately; chat bubbles on both panel and pet update together, no restart needed.',
     '恢复默认': 'Reset to Default',
   }
@@ -1130,8 +1136,11 @@ const THEME_BUBBLE_COLORS = {
   'dark-pink': '255, 255, 255',
   'light-pink': '0, 0, 0',
   'cyber-green': '255, 255, 255',
-  'liquid-glass': '255, 255, 255',
+  'liquid-glass': '0, 0, 0',
   'eva-purple': '255, 255, 255',
+  'eva-01-green': '255, 255, 255',
+  'eva-02-red': '255, 255, 255',
+  'eva-03-blue': '255, 255, 255',
 };
 
 function applyThemePreset(preset) {

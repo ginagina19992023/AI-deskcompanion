@@ -1519,7 +1519,7 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       break;
     }
     case 'themePreset': {
-      const allowed = new Set(['classic', 'dark-red', 'dark-pink', 'light-pink', 'cyber-green', 'liquid-glass', 'eva-purple']);
+      const allowed = new Set(['classic', 'dark-red', 'dark-pink', 'light-pink', 'cyber-green', 'liquid-glass', 'eva-purple', 'eva-01-green', 'eva-02-red', 'eva-03-blue']);
       cfg.theme = cfg.theme ?? {};
       cfg.theme.preset = allowed.has(value) ? value : 'classic';
       // Picking a built-in preset directly (as opposed to
