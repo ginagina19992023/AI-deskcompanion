@@ -1184,15 +1184,15 @@ let customThemesCache = [];
 // Map of theme presets to their assistant bubble colors (RGB triplets)
 const THEME_BUBBLE_COLORS = {
   'classic': '0, 0, 0',
-  'dark-red': '255, 255, 255',
-  'dark-pink': '255, 255, 255',
+  'dark-red': '30, 20, 22',
+  'dark-pink': '30, 22, 28',
   'light-pink': '0, 0, 0',
-  'cyber-green': '255, 255, 255',
+  'cyber-green': '15, 30, 25',
   'liquid-glass': '0, 0, 0',
-  'eva-purple': '255, 255, 255',
-  'eva-01-green': '255, 255, 255',
-  'eva-02-red': '255, 255, 255',
-  'eva-03-blue': '255, 255, 255',
+  'eva-purple': '15, 10, 20',
+  'eva-01-green': '12, 20, 15',
+  'eva-02-red': '25, 15, 16',
+  'eva-03-blue': '10, 16, 22',
 };
 
 function applyThemePreset(preset) {
