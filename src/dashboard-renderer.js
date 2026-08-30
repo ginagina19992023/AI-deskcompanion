@@ -8,6 +8,7 @@
 import { ATLAS, BASE_ROWS, ROW_FRAME_COUNTS } from './atlas.js';
 import { isOverdue, parseTodoInput } from './todos.js';
 import { speak } from './voice-tts.js';
+import { DASHBOARD_I18N } from './dashboard-i18n-map.js';
 
 // Sprite-sheet dimension check for imported character packs -- the exact
 // same rule renderer.js's loadPet() applies to the two shipped pets, run
@@ -58,16 +59,36 @@ const sections = Object.fromEntries(
   [...document.querySelectorAll('.section')].map((el) => [el.id.replace('section-', ''), el]),
 );
 
+// The overview tab's Claude usage/task-list numbers are written by an
+// external process (Claude Code's own hooks, on their own cadence, not
+// this app's) -- confirmed live that a dashboard window left open on this
+// tab shows stale percentages next to the terminal's own up-to-date
+// statusline until something forces a refetch. showSection() already
+// refetches once on *entering* the tab; this keeps it current while
+// you're just sitting on it, without needing to click away and back.
+const OVERVIEW_POLL_MS = 15000;
+let overviewPollTimer = null;
+function stopOverviewPolling() {
+  if (overviewPollTimer) {
+    clearInterval(overviewPollTimer);
+    overviewPollTimer = null;
+  }
+}
+
 function showSection(name) {
   for (const btn of navBtns) btn.classList.toggle('active', btn.dataset.section === name);
   for (const [key, el] of Object.entries(sections)) el.classList.toggle('active', key === name);
+  stopOverviewPolling();
   if (name === 'todos') {
     refreshTodosAndTasks();
     refreshOutlookStatus();
   }
   if (name === 'tasks') refreshTodosAndTasks();
   if (name === 'history') loadHistory();
-  if (name === 'overview') refreshOverview();
+  if (name === 'overview') {
+    refreshOverview();
+    overviewPollTimer = setInterval(refreshOverview, OVERVIEW_POLL_MS);
+  }
   if (name === 'characters') refreshCharacters();
   if (name === 'memory') refreshMemory();
   if (name === 'report') {
@@ -78,6 +99,78 @@ function showSection(name) {
   if (name === 'gestures') loadGestures();
   if (name === 'automation') refreshAutomationOutlookStatus();
   if (name === 'chat') loadChatTab();
+  if (name === 'vocal') ensureVocalVoicesLoaded();
+}
+
+// --- vocal / singing --------------------------------------------------
+// Reuses MiMo's regular preset-voice list (same IPC call the voice section
+// already uses) -- singing mode is the same voices, just with a (唱歌)
+// style tag prepended server-side by main.js's pet:synthesize-song
+// handler, so there's no separate "singing voice list" to fetch.
+let vocalVoicesLoaded = false;
+async function ensureVocalVoicesLoaded() {
+  if (vocalVoicesLoaded) return;
+  vocalVoicesLoaded = true;
+  const vocalVoiceSelectEl = document.getElementById('vocalVoiceSelect');
+  if (!vocalVoiceSelectEl) return;
+  try {
+    const { chinese, english } = await window.dash.getMimoVoices();
+    const allVoices = [...chinese, ...english.filter((v) => v.id !== 'mimo_default')];
+    for (const v of allVoices) {
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = v.label;
+      vocalVoiceSelectEl.appendChild(opt);
+    }
+  } catch (err) {
+    console.error('Failed to load vocal voices:', err);
+  }
+}
+
+const vocalLyricsInputEl = document.getElementById('vocalLyricsInput');
+const vocalSampleSelectEl = document.getElementById('vocalSampleSelect');
+const vocalVoiceSelectEl = document.getElementById('vocalVoiceSelect');
+const vocalSingBtnEl = document.getElementById('vocalSingBtn');
+const vocalStatusEl = document.getElementById('vocalStatus');
+
+if (vocalSampleSelectEl) {
+  vocalSampleSelectEl.addEventListener('change', (e) => {
+    if (e.target.value) vocalLyricsInputEl.value = e.target.value;
+  });
+}
+
+if (vocalSingBtnEl) {
+  vocalSingBtnEl.addEventListener('click', async () => {
+    const lyrics = vocalLyricsInputEl.value.trim();
+    if (!lyrics) {
+      vocalStatusEl.style.color = '#c4304a';
+      vocalStatusEl.textContent = '✗ 先填歌词或选一个样例';
+      return;
+    }
+    vocalSingBtnEl.disabled = true;
+    vocalStatusEl.style.color = '';
+    vocalStatusEl.textContent = '演唱合成中…（比普通语音耗时更长，可能要 10-20 秒）';
+    try {
+      const result = await window.dash.synthesizeSong(lyrics, vocalVoiceSelectEl.value || undefined);
+      if (result.fileUrl) {
+        const audio = new Audio(result.fileUrl);
+        audio.play();
+        vocalStatusEl.style.color = '#2e8b45';
+        vocalStatusEl.textContent = '✓ 播放中…';
+        audio.onended = () => {
+          vocalStatusEl.textContent = '';
+        };
+      } else {
+        vocalStatusEl.style.color = '#c4304a';
+        vocalStatusEl.textContent = `✗ ${result.error || '合成失败'}`;
+      }
+    } catch (err) {
+      vocalStatusEl.style.color = '#c4304a';
+      vocalStatusEl.textContent = `✗ 出错: ${err.message}`;
+    } finally {
+      vocalSingBtnEl.disabled = false;
+    }
+  });
 }
 for (const btn of navBtns) btn.addEventListener('click', () => showSection(btn.dataset.section));
 
@@ -161,7 +254,7 @@ function formatResetIn(resetsAtMs) {
   return `${mins} 分钟后重置`;
 }
 
-function renderUsageBar(container, label, sub, valueText, pct) {
+function renderUsageBar(container, label, sub, valueText, pct, tier) {
   const row = document.createElement('div');
   row.className = 'usage-row';
   const head = document.createElement('div');
@@ -185,7 +278,7 @@ function renderUsageBar(container, label, sub, valueText, pct) {
   const track = document.createElement('div');
   track.className = 'usage-bar-track';
   const fill = document.createElement('div');
-  fill.className = `usage-bar-fill ${usageBarClass(pct)}`;
+  fill.className = `usage-bar-fill ${usageBarClass(pct)}${tier ? ` tier-${tier}` : ''}`;
   fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
   track.appendChild(fill);
   row.appendChild(head);
@@ -210,7 +303,7 @@ async function loadClaudeUsage() {
         typeof s.totalInputTokens === 'number' && typeof s.contextWindowSize === 'number'
           ? `${formatTokenCount(s.totalInputTokens)} / ${formatTokenCount(s.contextWindowSize)} (${pct}%)`
           : `${pct}%`;
-      renderUsageBar(claudeUsageSessionsEl, label, s.model, valueText, pct);
+      renderUsageBar(claudeUsageSessionsEl, label, s.model, valueText, pct, 'context');
     }
   }
 
@@ -227,6 +320,7 @@ async function loadClaudeUsage() {
         null,
         `${formatResetIn(accountRateLimits.fiveHourResetsAt)} · ${Math.round(accountRateLimits.fiveHourUsedPercent)}%`,
         accountRateLimits.fiveHourUsedPercent,
+        'fivehour',
       );
     }
     if (accountRateLimits.weekUsedPercent != null) {
@@ -236,6 +330,7 @@ async function loadClaudeUsage() {
         null,
         `${formatResetIn(accountRateLimits.weekResetsAt)} · ${Math.round(accountRateLimits.weekUsedPercent)}%`,
         accountRateLimits.weekUsedPercent,
+        'week',
       );
     }
   }
@@ -355,23 +450,345 @@ dashModuleAlphaEl.addEventListener('change', () => window.dash.setSetting('modul
 const uiLanguageSelectEl = document.getElementById('uiLanguageSelect');
 const i18nStrings = {
   zh: {
+    '界面语言': '界面语言',
+    '应用': '应用',
+    '中文': '中文',
+    '配色方案': '配色方案',
+    '主题名字': '主题名字',
+    '整体透明度': '整体透明度',
+    '侧边栏 / 模块透明度': '侧边栏 / 模块透明度',
+    '界面缩放（文字/按钮大小）': '界面缩放（文字/按钮大小）',
+    '「记忆」页的关系图配色跟随主题': '「记忆」页的关系图配色跟随主题',
+    '背景颜色': '背景颜色',
+    '背景透明度': '背景透明度',
+    '气泡/按钮链/徽章的底色': '气泡/按钮链/徽章的底色',
+    '强调色（按钮 / 自己发的消息气泡）': '强调色（按钮 / 自己发的消息气泡）',
+    '文字色': '文字色',
+    '开启（番茄钟结束 / AI 任务需要你了 / 出错 / 摸它 时响一声短音）': '开启（番茄钟结束 / AI 任务需要你了 / 出错 / 摸它 时响一声短音）',
+    '启用语音输出与输入': '启用语音输出与输入',
+    '语音输出音量': '语音输出音量',
+    '语速': '语速',
+    '音高': '音高',
+    '朗读引擎': '朗读引擎',
+    'MiMo API Key': 'MiMo API Key',
+    '中文音色（MiMo）': '中文音色（MiMo）',
+    '中文语气标签（可选）': '中文语气标签（可选）',
+    '英文音色（MiMo）': '英文音色（MiMo）',
+    '发声音色（SAPI）': '发声音色（SAPI）',
+    '英文音色（Edge）': '英文音色（Edge）',
+    '中文音色（Edge）': '中文音色（Edge）',
+    '语音识别引擎': '语音识别引擎',
+    'CPU 模式（先出文字再朗读）': 'CPU 模式（先出文字再朗读）',
+    '推送通话快捷键': '推送通话快捷键',
+    '启用聊天': '启用聊天',
+    '聊天时启用语音回复': '聊天时启用语音回复',
+    '聊天模型提供商': '聊天模型提供商',
+    'Ollama 地址': 'Ollama 地址',
+    '模型名称': '模型名称',
+    '回复语言': '回复语言',
+    '口头禅（每行一句）': '口头禅（每行一句）',
+    '歌词文本': '歌词文本',
+    '试用样例歌词': '试用样例歌词',
+    '演唱音色': '演唱音色',
+    '来源': '来源',
+    '模型': '模型',
     'voicePreviewChineseBtn': '试听',
     'voicePreviewEnglishBtn': 'Preview',
-    'voiceEdgeEnglishHint': 'Edge 云端英文神经语音 · 点击「Preview」听样音（测试文本："Good evening, my lord. How was your day?"）',
-    'voiceEdgeChineseHint': 'Edge 云端中文神经语音 · 点击「试听」听样音（测试文本："晚上好，少爷。今天过得还算体面吧？"）',
+    'voiceEdgeEnglishHint': 'Edge 云端英文神经语音 · 点击「Preview」听样音（测试文本："Ah, young master, you look rather well this evening."）',
+    'voiceEdgeChineseHint': 'Edge 云端中文神经语音 · 点击「试听」听样音（测试文本："哦呀哦呀，少爷，今天气色看着倒是不错，是发生了什么好事吗？"）',
+    'uiLanguageLabel': '界面语言',
+    'uiLanguageApplyBtn': '应用',
+    'sidebarLangBadge': '中文',
+    // Section titles (h3)
+    '语言设置': '语言设置',
+    '控制面板外观': '控制面板外观',
+    '背景': '背景',
+    '桌宠主题色': '桌宠主题色',
+    '通知音效': '通知音效',
+    '🎤 语音设置': '🎤 语音设置',
+    '💬 聊天设置': '💬 聊天设置',
+    '角色对话语言': '角色对话语言',
+    '口头禅': '口头禅',
+    '唱歌': '唱歌',
+    '手势': '手势',
+    // Hint descriptions (key UI Language section)
+    '切换界面、对话和通知文本的语言；点「应用」实际执行切换，成功显示绿色✓，失败显示红色✗（提示最多显示1分钟）。': '切换界面、对话和通知文本的语言；点「应用」实际执行切换，成功显示绿色✓，失败显示红色✗（提示最多显示1分钟）。',
+    // Status messages
+    '✓ 转换成功': '✓ 转换成功',
+    '✗ 转换失败': '✗ 转换失败',
+    '转换中…': '转换中…',
+    // Appearance section options and hints
+    '经典（暖白 + 酒红）': '经典（暖白 + 酒红）',
+    '黑绿赛博（荧光终端绿）': '黑绿赛博（荧光终端绿）',
+    'EVA 绫波（紫罗兰 + 深紫）': 'EVA 绫波（紫罗兰 + 深紫）',
+    '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。': '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。',
+    '恢复默认': '恢复默认',
   },
   en: {
+    '界面语言': 'Interface Language',
+    '应用': 'Apply',
+    '中文': 'Chinese',
+    '配色方案': 'Color Scheme',
+    '主题名字': 'Theme Name',
+    '整体透明度': 'Opacity',
+    '侧边栏 / 模块透明度': 'Sidebar / Module Opacity',
+    '界面缩放（文字/按钮大小）': 'UI Scale (Text / Button Size)',
+    '「记忆」页的关系图配色跟随主题': 'Memory Graph Color Follows Theme',
+    '背景颜色': 'Background Color',
+    '背景透明度': 'Background Opacity',
+    '气泡/按钮链/徽章的底色': 'Bubble / Link / Badge Base Color',
+    '强调色（按钮 / 自己发的消息气泡）': 'Accent Color (Button / Message Bubble)',
+    '文字色': 'Text Color',
+    '开启（番茄钟结束 / AI 任务需要你了 / 出错 / 摸它 时响一声短音）': 'Enable (Pomodoro Done / Task Alert / Error / Pet Interaction)',
+    '启用语音输出与输入': 'Enable Voice Output & Input',
+    '语音输出音量': 'Voice Volume',
+    '语速': 'Speech Rate',
+    '音高': 'Pitch',
+    '朗读引擎': 'TTS Engine',
+    'MiMo API Key': 'MiMo API Key',
+    '中文音色（MiMo）': 'Chinese Voice (MiMo)',
+    '中文语气标签（可选）': 'Chinese Style Tag (Optional)',
+    '英文音色（MiMo）': 'English Voice (MiMo)',
+    '发声音色（SAPI）': 'Voice (SAPI)',
+    '英文音色（Edge）': 'English Voice (Edge)',
+    '中文音色（Edge）': 'Chinese Voice (Edge)',
+    '语音识别引擎': 'Speech Recognition Engine',
+    'CPU 模式（先出文字再朗读）': 'CPU Mode (Text First)',
+    '推送通话快捷键': 'Push-to-Talk Hotkey',
+    '启用聊天': 'Enable Chat',
+    '聊天时启用语音回复': 'Voice Reply During Chat',
+    '聊天模型提供商': 'Chat Provider',
+    'Ollama 地址': 'Ollama URL',
+    '模型名称': 'Model Name',
+    '回复语言': 'Reply Language',
+    '口头禅（每行一句）': 'Catchphrases (One per Line)',
+    '歌词文本': 'Song Lyrics',
+    '试用样例歌词': 'Example Lyrics',
+    '演唱音色': 'Singing Voice',
+    '来源': 'Source',
+    '模型': 'Model',
     'voicePreviewChineseBtn': 'Listen',
     'voicePreviewEnglishBtn': 'Preview',
-    'voiceEdgeEnglishHint': 'Edge cloud English neural voice · Click "Preview" to hear sample ("Good evening, my lord. How was your day?")',
-    'voiceEdgeChineseHint': 'Edge cloud Chinese neural voice · Click "Listen" to hear sample ("Good evening, my lord. How was your day today?")',
+    'voiceEdgeEnglishHint': 'Edge cloud English neural voice · Click "Preview" to hear sample ("Ah, young master, you look rather well this evening.")',
+    'voiceEdgeChineseHint': 'Edge cloud Chinese neural voice · Click "Listen" to hear sample ("哦呀哦呀，少爷，今天气色看着倒是不错，是发生了什么好事吗？")',
+    'uiLanguageLabel': 'Interface Language',
+    'uiLanguageApplyBtn': 'Apply',
+    'sidebarLangBadge': 'English',
+    // Section titles (h3)
+    '语言设置': 'Language Settings',
+    '控制面板外观': 'Panel Appearance',
+    '背景': 'Background',
+    '桌宠主题色': 'Pet Theme Color',
+    '通知音效': 'Notification Sound',
+    '🎤 语音设置': '🎤 Voice Settings',
+    '💬 聊天设置': '💬 Chat Settings',
+    '角色对话语言': 'Character Chat Language',
+    '口头禅': 'Catchphrases',
+    '唱歌': 'Singing',
+    '手势': 'Gestures',
+    // Hint descriptions (key UI Language section)
+    '切换界面、对话和通知文本的语言；点「应用」实际执行切换，成功显示绿色✓，失败显示红色✗（提示最多显示1分钟）。': 'Switch the language for interface, chat, and notifications; click "Apply" to execute; success shows green ✓, failure shows red ✗ (message shows for at most 1 minute).',
+    // Status messages
+    '✓ 转换成功': '✓ Success',
+    '✗ 转换失败': '✗ Failed',
+    '转换中…': 'Converting...',
+    // Appearance section options and hints
+    '经典（暖白 + 酒红）': 'Classic (Warm White + Wine Red)',
+    '黑绿赛博（荧光终端绿）': 'Cyberpunk Black-Green (Neon Terminal)',
+    'EVA 绫波（紫罗兰 + 深紫）': 'EVA Ayanami (Violet + Deep Purple)',
+    '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。': 'Changes apply immediately; chat bubbles on both panel and pet update together, no restart needed.',
+    '恢复默认': 'Reset to Default',
   }
 };
 
-function applyUILanguage(lang) {
-  const strings = i18nStrings[lang] || i18nStrings.zh;
+const sidebarLangBadgeEl = document.getElementById('sidebarLangBadge');
+let currentUILanguage = 'zh'; // Track current UI language for status messages
 
-  // Update button texts
+// Helper function to translate dynamic strings
+function t(zhText) {
+  const allTranslations = { ...i18nStrings[currentUILanguage], ...vocabularyFallback };
+  return allTranslations[zhText] || zhText;
+}
+
+// Fallback vocabulary map for texts not in i18nStrings
+const vocabularyFallback = {
+  '🎤 语音设置': '🎤 Voice Settings',
+  '💬 聊天设置': '💬 Chat Settings',
+  '🎨 生成新形象需求': '🎨 Generate Character',
+  '👀 干活监督': '👀 Focus Monitor',
+  '📝 每日总结 + 记忆整理': '📝 Daily Summary + Memory',
+  '📧 Outlook 待办同步': '📧 Outlook Sync',
+  '📷 摄像头感知': '📷 Camera Sensing',
+  '🖼️ 屏幕提示（截屏 + AI 锐评）': '🖼️ Screen Tips',
+  '语言设置': 'Language Settings',
+  '控制面板外观': 'Panel Appearance',
+  '背景': 'Background',
+  '桌宠主题色': 'Pet Theme Color',
+  '通知音效': 'Notification Sound',
+  '角色口头禅': 'Catchphrases',
+  '角色对话语言': 'Character Chat Language',
+  '唱歌': 'Singing',
+  '手势': 'Gestures',
+  '宠物可以说话，你也可以按下面设置的快捷键用麦克风讲话': 'Pet can speak; you can also use the hotkey below to talk via microphone.',
+  '选完立刻生效，控制面板和宠物身上的聊天气泡会一起换色，不用重启。': 'Changes apply immediately; chat bubbles on both panel and pet update together.',
+  '拖动即可实时调整整个控制面板窗口（背景 + 侧边栏 + 设置模块全部一起）的真实透明度；数值越低，桌面透得越明显。': 'Drag to adjust panel opacity in real-time; lower values make the desktop more visible.',
+  '只调左侧栏和每个设置模块自己的磨砂玻璃浓淡，跟上面的「整体透明度」和「背景」都是分开的三层，互不影响。': 'Adjust sidebar and module frosted glass opacity separately; independent from overall opacity.',
+  '看不清小字或者觉得按钮太大都可以调这个，跟系统缩放无关，只影响这个应用自己。': 'Adjust text size and button size; independent from system scale.',
+  '改的是桌宠身上所有 UI（对话气泡、选项扇形按钮链、用量徽章卡片）共用的底色，选完立刻生效；黑红描边和文字颜色不受影响。': 'Changes the base color for all pet UI (chat bubbles, options, usage badges); takes effect immediately.',
+  '不选文件就用内置的合成音效；选了就换成你自己的音频文件。': 'Use built-in sound effect by default; select a file to use your own audio.',
+  'Windows 自带（SAPI，零配置）': 'Windows Built-in (SAPI, No Config)',
+  'Windows 自带（SAPI，零配置，音质一般）': 'Windows Built-in (SAPI, Standard Quality)',
+  'Piper（本地神经语音，音质好，需先配置模型）': 'Piper (Local Neural, High Quality, Needs Setup)',
+  'Edge 云端语音（音质最好，需要联网）': 'Edge Cloud (Best Quality, Requires Internet)',
+  'MiMo 云端语音（小米，角色感强，需要联网+API Key）': 'MiMo Cloud (Xiaomi, Character-driven, Requires Internet + API)',
+  '列表来自本机 Windows 系统自带的语音包（仅对上面的 SAPI 引擎生效）；系统默认经常是女声，想要男声从这里选一个名字含"男"或 Male 的试听效果': 'Lists voices from Windows system packages (SAPI only); default is usually female.',
+  '语气标签会拼进合成文本前面影响音色表现（比如「磁性」「沉稳」更贴合管家人设），留空则不加修饰；只对中文文本生效。': 'Style tags affect voice tone; leave empty for no modification. Chinese text only.',
+  '跟界面语言是两回事——这个只决定角色聊天回复用哪种语言，选了 English 之后角色会用英文回复，语音也会自动跟着用对应的英文音色（不用额外设置）。': 'Separate from interface language; determines which language the character uses for chat replies.',
+  '用 Alt+A 快捷键或点工具栏打开聊天窗口': 'Press Alt+A or click toolbar to open chat.',
+  '宠物会用语音读出聊天回复': 'Pet will speak the chat reply with voice.',
+  '跨会话记忆': 'Cross-session Memory',
+  '定期截一屏交给视觉模型看一眼，说一句简短观察。': 'Periodically screenshot and ask vision model for brief observations.',
+  '定期生成当天屏幕总结，顺带跑一遍记忆的提炼/去重/归纳总结（详见「记忆」页）。': 'Generate daily screen summary and process memory.',
+  '给当前这套外观起个名字': 'Name this appearance preset',
+  '另存为新主题': 'Save as New Theme',
+  '把当前这套配色方案 + 强调色/文字色/背景/透明度/缩放整体存成一个新主题，之后能在上面下拉框里直接选出来；重命名/删除只对你自己存的主题有效，内置的几个方案改不了。': 'Save current color scheme with accent/text/background/opacity/scale as a new theme; rename/delete only affects your custom themes.',
+  '这里改的是控制面板最底层的背景，跟左侧栏、各设置模块的磨砂玻璃颜色是分开的——那两个不受这里影响，还是只认「桌宠主题色」。': 'Changes the base background layer, separate from sidebar and module frosted glass colors.',
+  '设置了图片就会铺满整个背景层、替代背景颜色；上面的透明度滑块同样能让图片变淡，方便看清前面的文字。': 'Image fills the background layer and replaces color; opacity slider also fades the image.',
+  '关掉的话关系图始终用经典配色（暖白底 + 原来那几个节点颜色），不受这里选的配色方案影响。': 'Turn off to keep classic colors for relation graph, unaffected by theme selection.',
+  '这两个是在「配色方案」基础上单独微调，改完立刻生效并记住；点「恢复默认」会退回当前配色方案自带的颜色，不影响皮肤色和方案本身。': 'Fine-tune these colors separately from the scheme; changes apply immediately and are saved.',
+  '番茄钟完成': 'Pomodoro Complete',
+  '任务需要你 / 出错': 'Task Alert / Error',
+  '摸它 / 手势': 'Pet Interaction / Gesture',
+  '🎤 唱歌': '🎤 Singing',
+  '用 MiMo 云端语音的"唱歌模式"合成——跟平时说话走同一个 API，只是歌词前面自动加了唱歌标签，不需要额外配置，需要先在「语音与聊天」页填好 MiMo API Key。': 'Uses MiMo Cloud "singing mode" - same API as voice chat, auto-adds singing tags to lyrics, requires MiMo API Key.',
+  '歌词': 'Lyrics',
+  '输入想让角色唱的歌词（中文/英文均可，中文效果通常更好）': 'Enter lyrics for the character to sing (Chinese/English; Chinese usually sounds better)',
+  '跟随语音设置里配置的默认音色': 'Follows default voice from voice settings',
+  '🎵 唱一下': '🎵 Sing Now',
+  '生成的是完整一段人声演唱（会自带旋律和节奏，不是照着歌词念），时长通常比同样文字说话要长不少；不带伴奏，纯人声。免费额度和「语音与聊天」页共用同一个 MiMo Key。': 'Generates full vocal performance with melody and rhythm (not just recitation); usually longer than spoken text; pure vocals no accompaniment; shares free quota with voice chat.',
+  '背景图片': 'Background Image',
+  '已选择': 'Selected',
+  '选择图片': 'Choose Image',
+  '清除': 'Clear',
+  '选择文件': 'Choose File',
+  '（选一段快速试听，或者自己填词）': '(Choose a sample or enter lyrics)',
+  '（内置音效）': '(Built-in Sound)',
+  '（未设置，用背景颜色）': '(Not Set, Use Background Color)',
+  // Overview tab content
+  '待办': 'Todo',
+  '番茄钟': 'Pomodoro',
+  '未开始': 'Not Started',
+  'AI 任务': 'AI Tasks',
+  '点「AI 任务」页查看': 'Click "AI Tasks" tab to view',
+  '屏幕提示': 'Screen Tips',
+  '开启中': 'Enabled',
+  'AI 最新状态': 'Latest AI Status',
+  'Claude · 刚完成': 'Claude · Just Completed',
+  'Claude · 任务完成！': 'Claude · Task Complete!',
+  'Claude 用量': 'Claude Usage',
+  '数据来自 Claude Code 官方的 statusLine 机制（每个会话自己上报上下文占用，5 小时/每周额度是账号级别，所有会话共享同一个数字），不是猜的也不是接的私有接口。': 'Data from Claude Code official statusLine mechanism (each session reports context usage; 5-hour/weekly quota is account-level, shared across sessions), not estimated or private API.',
+  '会话': 'Session',
+  '帮我把这个文件转成MP3': 'Help me convert this file to MP3',
+  '5 小时额度': '5-hour quota',
+  '4 小时 22 分钟后重置 · 17%': 'Resets in 4 hours 22 minutes · 17%',
+  '每周额度 · 全部模型': 'Weekly quota · All models',
+  '4 天后重置 · 54%': 'Resets in 4 days · 54%',
+  '未开始': 'Not Started',
+}
+
+// Applies the dashboard "chrome" translation (sidebar title, the persistent
+// language badge, nav labels, and each section's <h2>/subtitle) plus the
+// smaller voice-preview string set below. Nav buttons carry their own
+// translation key in data-section already (no extra markup needed); each
+// section's <h2> is found via its existing id="section-<key>" so this
+// doesn't require hunting element-by-element -- new nav/section pairs only
+// need an entry added to dashboard-i18n-map.js, not a new querySelector
+// here.
+function applyDashboardChromeLanguage(lang) {
+  const t = DASHBOARD_I18N[lang] || DASHBOARD_I18N.zh;
+
+  const titleEl = document.querySelector('#sidebar h1');
+  if (titleEl) titleEl.textContent = t.appTitle;
+  const footerEl = document.getElementById('sidebarFooter');
+  if (footerEl) footerEl.textContent = t.sidebarFooter;
+  if (sidebarLangBadgeEl) sidebarLangBadgeEl.textContent = lang === 'en' ? 'English' : '中文';
+
+  const groupLabels = document.querySelectorAll('.nav-group-label');
+  const groupKeys = ['navGroupSettings', 'navGroupCharacter', 'navGroupRecords'];
+  groupLabels.forEach((el, i) => {
+    if (groupKeys[i] && t[groupKeys[i]]) el.textContent = t[groupKeys[i]];
+  });
+
+  document.querySelectorAll('.nav-btn[data-section]').forEach((btn) => {
+    const key = btn.dataset.section;
+    if (t.nav[key]) btn.textContent = t.nav[key];
+  });
+
+  for (const key of Object.keys(t.h2)) {
+    const h2 = document.querySelector(`#section-${key} h2`);
+    if (h2) h2.textContent = t.h2[key];
+    const subtitle = t.subtitle?.[key];
+    if (subtitle) {
+      const p = document.querySelector(`#section-${key} .subtitle`);
+      if (p) p.textContent = subtitle;
+    }
+  }
+}
+
+function applyUILanguage(lang) {
+  currentUILanguage = lang; // Update current language tracking
+  console.log(`[i18n] Starting translation to ${lang}`);
+  applyDashboardChromeLanguage(lang);
+
+  const strings = i18nStrings[lang] || i18nStrings.zh;
+  let translatedCount = 0;
+
+  // 1. Translate all labels
+  const allLabels = document.querySelectorAll('label');
+  for (const label of allLabels) {
+    let zhText = label.getAttribute('data-i18n-zh');
+    if (!zhText) {
+      zhText = label.textContent.trim();
+    }
+    if (strings[zhText]) {
+      label.textContent = strings[zhText];
+      if (!label.hasAttribute('data-i18n-zh')) {
+        label.setAttribute('data-i18n-zh', zhText);
+      }
+    }
+  }
+
+  // 2. Translate buttons (including the Apply button)
+  const buttons = document.querySelectorAll('button');
+  for (const btn of buttons) {
+    let zhText = btn.getAttribute('data-i18n-zh');
+    if (!zhText) {
+      zhText = btn.textContent.trim();
+    }
+    if (strings[zhText]) {
+      btn.textContent = strings[zhText];
+      if (!btn.hasAttribute('data-i18n-zh')) {
+        btn.setAttribute('data-i18n-zh', zhText);
+      }
+    }
+  }
+
+  // 3. Translate h3 section titles
+  const h3Elements = document.querySelectorAll('h3');
+  for (const h3 of h3Elements) {
+    let zhText = h3.getAttribute('data-i18n-zh');
+    if (!zhText) {
+      zhText = h3.textContent.trim();
+    }
+    if (strings[zhText]) {
+      h3.textContent = strings[zhText];
+      if (!h3.hasAttribute('data-i18n-zh')) {
+        h3.setAttribute('data-i18n-zh', zhText);
+      }
+    }
+  }
+
+  // 4. Translate special button IDs
   const btnMap = {
     'voicePreviewChineseBtn': voicePreviewChineseBtnEl,
     'voicePreviewEnglishBtn': voicePreviewEnglishBtnEl,
@@ -383,7 +800,7 @@ function applyUILanguage(lang) {
     }
   }
 
-  // Update hint texts
+  // 5. Update hint texts
   const hintMap = {
     'voiceEdgeEnglishHint': document.getElementById('voiceEdgeEnglishHint'),
     'voiceEdgeChineseHint': document.getElementById('voiceEdgeChineseHint'),
@@ -394,14 +811,202 @@ function applyUILanguage(lang) {
       el.textContent = strings[key];
     }
   }
+
+  // 6. Translate hint paragraphs
+  const hints = document.querySelectorAll('p.hint');
+  for (const hint of hints) {
+    let zhText = hint.getAttribute('data-i18n-zh');
+    if (!zhText) {
+      zhText = hint.textContent.trim();
+    }
+    if (strings[zhText]) {
+      hint.textContent = strings[zhText];
+      if (!hint.hasAttribute('data-i18n-zh')) {
+        hint.setAttribute('data-i18n-zh', zhText);
+      }
+    }
+  }
+
+  // 7. Translate select option text
+  const allSelects = document.querySelectorAll('select');
+  for (const select of allSelects) {
+    for (const option of select.options) {
+      let zhText = option.getAttribute('data-i18n-zh');
+      if (!zhText) {
+        zhText = option.textContent.trim();
+      }
+      if (strings[zhText]) {
+        option.textContent = strings[zhText];
+        if (!option.hasAttribute('data-i18n-zh')) {
+          option.setAttribute('data-i18n-zh', zhText);
+        }
+      }
+    }
+  }
+
+  // 8. Translate all text nodes, attributes, and elements recursively with fallback
+  function normalizeForMatch(text) {
+    return text.trim().replace(/\s+/g, ' ');
+  }
+
+  function translateAttribute(element, attrName) {
+    const value = element.getAttribute(attrName);
+    if (!value) return;
+    const normalized = normalizeForMatch(value);
+    if (strings[normalized]) {
+      element.setAttribute(attrName, strings[normalized]);
+    } else if (lang === 'en' && vocabularyFallback[normalized]) {
+      element.setAttribute(attrName, vocabularyFallback[normalized]);
+    } else if (lang === 'en') {
+      for (const [key, val] of Object.entries(vocabularyFallback)) {
+        if (normalizeForMatch(key) === normalized) {
+          element.setAttribute(attrName, val);
+          break;
+        }
+      }
+    }
+  }
+
+  function translateTextNodes(container) {
+    for (const node of container.childNodes) {
+      if (node.nodeType === 3) { // Text node
+        const zhText = normalizeForMatch(node.textContent);
+        if (zhText.length > 0) {
+          if (strings[zhText]) {
+            node.textContent = strings[zhText];
+          } else if (lang === 'en' && vocabularyFallback[zhText]) {
+            node.textContent = vocabularyFallback[zhText];
+          } else if (lang === 'en') {
+            for (const [key, value] of Object.entries(vocabularyFallback)) {
+              if (normalizeForMatch(key) === zhText) {
+                node.textContent = value;
+                break;
+              }
+            }
+          }
+        }
+      } else if (node.nodeType === 1) { // Element node
+        // Translate placeholder and title attributes
+        if (node.hasAttribute('placeholder')) {
+          translateAttribute(node, 'placeholder');
+        }
+        if (node.hasAttribute('title')) {
+          translateAttribute(node, 'title');
+        }
+
+        // Skip script and style
+        if (['SCRIPT', 'STYLE'].includes(node.tagName)) {
+          continue;
+        }
+        // For p, h3, div, span without children: try translating textContent
+        if (['P', 'H3', 'DIV', 'SPAN'].includes(node.tagName) && node.children.length === 0) {
+          const zhText = normalizeForMatch(node.textContent);
+          if (zhText && /[一-鿿]/.test(zhText)) {
+            if (strings[zhText]) {
+              node.textContent = strings[zhText];
+            } else if (lang === 'en' && vocabularyFallback[zhText]) {
+              node.textContent = vocabularyFallback[zhText];
+            } else if (lang === 'en') {
+              for (const [key, value] of Object.entries(vocabularyFallback)) {
+                if (normalizeForMatch(key) === zhText) {
+                  node.textContent = value;
+                  break;
+                }
+              }
+            }
+          }
+        } else {
+          translateTextNodes(node);
+        }
+      }
+    }
+  }
+
+  // Find all sections and translate their content
+  const settingsSections = document.querySelectorAll('.section, .panel-block');
+  console.log(`[i18n] Found ${settingsSections.length} sections to translate`);
+
+  for (const section of settingsSections) {
+    translateTextNodes(section);
+  }
+
+  // 9. Schedule deferred translation for dynamically loaded content
+  setTimeout(() => {
+    const allElements = document.querySelectorAll('*');
+    for (const el of allElements) {
+      // Check text content
+      if (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) {
+        const zhText = normalizeForMatch(el.textContent);
+        if (zhText && /[一-鿿]/.test(zhText)) {
+          if (strings[zhText]) {
+            el.textContent = strings[zhText];
+          } else if (lang === 'en' && vocabularyFallback[zhText]) {
+            el.textContent = vocabularyFallback[zhText];
+          }
+        }
+      }
+
+      // Check value attribute (for input elements)
+      if (el.hasAttribute('value')) {
+        const zhVal = normalizeForMatch(el.getAttribute('value'));
+        if (zhVal && /[一-鿿]/.test(zhVal)) {
+          const allTrans = { ...strings, ...vocabularyFallback };
+          if (allTrans[zhVal]) {
+            el.setAttribute('value', allTrans[zhVal]);
+          }
+        }
+      }
+    }
+    console.log(`[i18n] Deferred translation complete`);
+  }, 200);
+
+  // 10. Update sidebar language badge
+  if (sidebarLangBadgeEl) {
+    sidebarLangBadgeEl.textContent = strings['sidebarLangBadge'];
+  }
+
+  console.log(`[i18n] Translation complete for language: ${lang}`);
+  console.log(`[i18n] i18nStrings has ${Object.keys(strings).length} entries`);
+  console.log(`[i18n] vocabularyFallback has ${Object.keys(vocabularyFallback).length} entries`);
 }
+
+const uiLanguageApplyBtnEl = document.getElementById('uiLanguageApplyBtn');
+const uiLanguageStatusEl = document.getElementById('uiLanguageStatus');
+let uiLanguageStatusClearTimer = null;
 
 if (uiLanguageSelectEl) {
   uiLanguageSelectEl.addEventListener('change', () => {
-    const value = uiLanguageSelectEl.value;
-    window.dash.setSetting('uiLanguage', value);
-    applyUILanguage(value);
+    window.dash.setSetting('uiLanguage', uiLanguageSelectEl.value);
+    uiLanguageStatusEl.textContent = '';
   });
+
+  if (uiLanguageApplyBtnEl) {
+    uiLanguageApplyBtnEl.addEventListener('click', async () => {
+      const value = uiLanguageSelectEl.value;
+      if (uiLanguageStatusClearTimer) clearTimeout(uiLanguageStatusClearTimer);
+      uiLanguageApplyBtnEl.disabled = true;
+      uiLanguageStatusEl.style.color = '';
+      const loadingStrings = i18nStrings[value] || i18nStrings.zh;
+      uiLanguageStatusEl.textContent = loadingStrings['转换中…'];
+      await new Promise((r) => setTimeout(r, 400));
+      try {
+        window.dash.setSetting('uiLanguage', value);
+        applyUILanguage(value);
+        const resultStrings = i18nStrings[value] || i18nStrings.zh;
+        uiLanguageStatusEl.style.color = '#2e8b45';
+        uiLanguageStatusEl.textContent = resultStrings['✓ 转换成功'];
+      } catch (err) {
+        const errorStrings = i18nStrings[value] || i18nStrings.zh;
+        uiLanguageStatusEl.style.color = '#c4304a';
+        uiLanguageStatusEl.textContent = `${errorStrings['✗ 转换失败']}: ${err.message}`;
+      } finally {
+        uiLanguageApplyBtnEl.disabled = false;
+        uiLanguageStatusClearTimer = setTimeout(() => {
+          uiLanguageStatusEl.textContent = '';
+        }, 60000);
+      }
+    });
+  }
 
   // Initialize from settings
   window.dash.getData().then(data => {
@@ -409,6 +1014,103 @@ if (uiLanguageSelectEl) {
       uiLanguageSelectEl.value = data.settings.uiLanguage;
       applyUILanguage(data.settings.uiLanguage);
     }
+
+    // Auto-test bilingual switching on startup
+    setTimeout(() => {
+      const testLang = 'en';
+      console.log('🧪 [Auto-Test] Starting comprehensive bilingual switch test to:', testLang);
+
+      // Switch to English
+      uiLanguageSelectEl.value = testLang;
+      applyUILanguage(testLang);
+
+      // Comprehensive verification - check all elements for Chinese text
+      setTimeout(() => {
+        console.log('🔍 [Auto-Test] Checking for untranslated Chinese text...');
+
+        const chineseRegex = /[一-鿿]/g;
+        const untranslatedElements = [];
+
+        // Scan all elements
+        const allElements = document.querySelectorAll('*');
+        for (const el of allElements) {
+          if (['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD'].includes(el.tagName)) continue;
+
+          // Check text content
+          if (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) {
+            const text = el.textContent.trim();
+            if (text && chineseRegex.test(text)) {
+              untranslatedElements.push({
+                type: 'textContent',
+                element: el.tagName,
+                text: text.substring(0, 50),
+                id: el.id,
+                class: el.className
+              });
+            }
+          }
+
+          // Check attributes
+          ['placeholder', 'title', 'value'].forEach(attr => {
+            const val = el.getAttribute(attr);
+            if (val && chineseRegex.test(val)) {
+              untranslatedElements.push({
+                type: attr,
+                element: el.tagName,
+                text: val.substring(0, 50),
+                id: el.id
+              });
+            }
+          });
+        }
+
+        if (untranslatedElements.length === 0) {
+          console.log('✅ [Auto-Test] SUCCESS! No Chinese text found. Bilingual switching is COMPLETE.');
+          console.log('✅ All UI elements properly translated to English.');
+        } else {
+          console.log(`⚠️ [Auto-Test] Found ${untranslatedElements.length} untranslated elements:`);
+          untranslatedElements.slice(0, 10).forEach((el, i) => {
+            console.log(`  ${i+1}. [${el.type}] ${el.element} - "${el.text}"`);
+          });
+        }
+
+        const testCases = [
+          { zh: '配色方案', en: 'Color Scheme' },
+          { zh: '语音输出音量', en: 'Voice Volume' },
+          { zh: '聊天模型提供商', en: 'Chat Provider' },
+          { zh: '口头禅（每行一句）', en: 'Catchphrases (One per Line)' }
+        ];
+
+        let passed = 0;
+        let failed = 0;
+
+        const allLabels = document.querySelectorAll('label');
+        for (const test of testCases) {
+          let found = false;
+          for (const label of allLabels) {
+            const stored = label.getAttribute('data-i18n-zh') || label.textContent.trim();
+            if (stored === test.zh) {
+              if (label.textContent === test.en) {
+                console.log(`✅ "${test.zh}" → "${test.en}"`);
+                passed++;
+              } else {
+                console.log(`❌ "${test.zh}" expected "${test.en}" but got "${label.textContent}"`);
+                failed++;
+              }
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            console.log(`❌ Label not found: "${test.zh}"`);
+            failed++;
+          }
+        }
+
+        console.log(`🧪 [Auto-Test Result] Passed: ${passed}/${testCases.length}, Failed: ${failed}`);
+        console.log(`🧪 [Status] ${failed === 0 ? '✅ 双语切换正常工作' : '❌ 双语切换有问题'}`);
+      }, 500);
+    }, 1000);
   }).catch(err => console.error('Failed to load UI language setting:', err));
 }
 
@@ -421,9 +1123,23 @@ const dashThemeRenameBtnEl = document.getElementById('dashThemeRenameBtn');
 const dashThemeDeleteBtnEl = document.getElementById('dashThemeDeleteBtn');
 let customThemesCache = [];
 
+// Map of theme presets to their assistant bubble colors (RGB triplets)
+const THEME_BUBBLE_COLORS = {
+  'classic': '0, 0, 0',
+  'dark-red': '255, 255, 255',
+  'dark-pink': '255, 255, 255',
+  'light-pink': '0, 0, 0',
+  'cyber-green': '255, 255, 255',
+  'liquid-glass': '255, 255, 255',
+  'eva-purple': '255, 255, 255',
+};
+
 function applyThemePreset(preset) {
   if (preset && preset !== 'classic') document.documentElement.setAttribute('data-theme', preset);
   else document.documentElement.removeAttribute('data-theme');
+  // Sync the assistant bubble color to the pet window so it matches the theme
+  const bubbleRgb = THEME_BUBBLE_COLORS[preset] || THEME_BUBBLE_COLORS['classic'];
+  window.dash.setSetting('assistantBubbleColor', bubbleRgb);
 }
 // Custom-theme <option>s carry a "custom:<id>" value so this handler can
 // tell them apart from the six built-in preset names without needing a
@@ -752,6 +1468,20 @@ const voiceSttEngineHintEl = document.getElementById('voiceSttEngineHint');
 const voiceTtsEngineSelectEl = document.getElementById('voiceTtsEngineSelect');
 const voiceTtsEngineHintEl = document.getElementById('voiceTtsEngineHint');
 const voiceTtsEnginePiperWarningEl = document.getElementById('voiceTtsEnginePiperWarning');
+const voiceTtsEngineStatusEl = document.getElementById('voiceTtsEngineStatus');
+const voiceGpuStatusHintEl = document.getElementById('voiceGpuStatusHint');
+const voiceMimoGroupEl = document.getElementById('voiceMimoGroup');
+const voiceMimoApiKeyInputEl = document.getElementById('voiceMimoApiKeyInput');
+const voiceMimoApiKeyHintEl = document.getElementById('voiceMimoApiKeyHint');
+const voiceMimoVoiceZhGroupEl = document.getElementById('voiceMimoVoiceZhGroup');
+const voiceMimoVoiceZhSelectEl = document.getElementById('voiceMimoVoiceZhSelect');
+const voiceMimoVoiceEnGroupEl = document.getElementById('voiceMimoVoiceEnGroup');
+const voiceMimoVoiceEnSelectEl = document.getElementById('voiceMimoVoiceEnSelect');
+const voiceMimoStyleGroupEl = document.getElementById('voiceMimoStyleGroup');
+const voiceMimoStyleSelectEl = document.getElementById('voiceMimoStyleSelect');
+const voiceMimoStyleHintEl = document.getElementById('voiceMimoStyleHint');
+const voicePreviewMimoZhBtnEl = document.getElementById('voicePreviewMimoZhBtn');
+const voicePreviewMimoEnBtnEl = document.getElementById('voicePreviewMimoEnBtn');
 const voiceCpuModeEl = document.getElementById('voiceCpuMode');
 const voiceCpuModeHintEl = document.getElementById('voiceCpuModeHint');
 const voiceSettingsGroups = [
@@ -779,6 +1509,7 @@ function updateVoiceNameGroupVisibility() {
   const enabled = voiceEnabledEl.checked;
   const showSapi = enabled && engine === 'sapi';
   const showEdge = enabled && engine === 'edge-cloud';
+  const showMimo = enabled && engine === 'mimo-cloud';
 
   voiceVoiceNameGroupEl.style.display = showSapi ? 'block' : 'none';
   voiceVoiceNameHintEl.style.display = showSapi ? 'block' : 'none';
@@ -786,7 +1517,43 @@ function updateVoiceNameGroupVisibility() {
   voiceEdgeEnglishHintEl.style.display = showEdge ? 'block' : 'none';
   voiceEdgeChineseGroupEl.style.display = showEdge ? 'block' : 'none';
   voiceEdgeChineseHintEl.style.display = showEdge ? 'block' : 'none';
-  voiceVoiceNameNonSapiHintEl.style.display = enabled && !showSapi && engine !== 'edge-cloud' ? 'block' : 'none';
+  voiceMimoGroupEl.style.display = showMimo ? 'block' : 'none';
+  voiceMimoApiKeyHintEl.style.display = showMimo ? 'block' : 'none';
+  voiceMimoVoiceZhGroupEl.style.display = showMimo ? 'block' : 'none';
+  voiceMimoVoiceEnGroupEl.style.display = showMimo ? 'block' : 'none';
+  voiceMimoStyleGroupEl.style.display = showMimo ? 'block' : 'none';
+  voiceMimoStyleHintEl.style.display = showMimo ? 'block' : 'none';
+  voiceVoiceNameNonSapiHintEl.style.display = enabled && !showSapi && engine !== 'edge-cloud' && engine !== 'mimo-cloud' ? 'block' : 'none';
+}
+
+function voiceOptionsFrom(list) {
+  return list.map((v) => {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    opt.textContent = v.label;
+    return opt;
+  });
+}
+
+let mimoVoicesLoaded = false;
+async function ensureMimoVoicesLoaded() {
+  if (mimoVoicesLoaded) return;
+  mimoVoicesLoaded = true;
+  try {
+    const { chinese, english, styleTags } = await window.dash.getMimoVoices();
+    voiceMimoVoiceZhSelectEl.replaceChildren(...voiceOptionsFrom(chinese));
+    voiceMimoVoiceEnSelectEl.replaceChildren(...voiceOptionsFrom(english));
+    voiceMimoStyleSelectEl.replaceChildren(
+      ...styleTags.map((tag) => {
+        const opt = document.createElement('option');
+        opt.value = tag;
+        opt.textContent = tag || '（不加语气标签）';
+        return opt;
+      }),
+    );
+  } catch (err) {
+    console.error('Failed to load MiMo voices:', err);
+  }
 }
 
 voiceEnabledEl.addEventListener('change', (e) => {
@@ -824,6 +1591,9 @@ voicePushToTalkKeyEl.addEventListener('change', (e) => {
 // someone picking a voice here almost always wants to see without
 // scrolling past a long list of English/other-language system voices.
 let pendingVoiceSelection = '';
+let pendingMimoVoiceZh = '白桦';
+let pendingMimoVoiceEn = 'Dean';
+let pendingMimoStyleTagZh = '';
 function populateVoiceNameSelect() {
   const voices = window.speechSynthesis?.getVoices() ?? [];
   if (!voices.length) return;
@@ -899,7 +1669,7 @@ if (voicePreviewEnglishBtnEl) {
     voicePreviewEnglishBtnEl.textContent = 'Generating...';
 
     try {
-      const testText = 'Good evening, my lord. How was your day?';
+      const testText = 'Ah, young master, you look rather well this evening.';
       const result = await window.dash.synthesizeSpeech(testText);
 
       if (result.fileUrl) {
@@ -952,7 +1722,7 @@ if (voicePreviewChineseBtnEl) {
 
     try {
       // Use a test sentence (Sebastian's greeting)
-      const testText = '晚上好，少爷。今天过得还算体面吧？';
+      const testText = '哦呀哦呀，少爷，今天气色看着倒是不错，是发生了什么好事吗？';
       const result = await window.dash.synthesizeSpeech(testText);
 
       if (result.fileUrl) {
@@ -1001,11 +1771,122 @@ voiceTtsEngineSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceTtsEngine', e.target.value);
   updateTtsEnginePiperWarning();
   updateVoiceNameGroupVisibility();
+  if (e.target.value === 'mimo-cloud') ensureMimoVoicesLoaded();
+  voiceTtsEngineStatusEl.textContent = '';
 });
+
+const voiceTtsEngineApplyBtnEl = document.getElementById('voiceTtsEngineApplyBtn');
+voiceTtsEngineApplyBtnEl.addEventListener('click', async () => {
+  const engine = voiceTtsEngineSelectEl.value;
+  voiceTtsEngineApplyBtnEl.disabled = true;
+  voiceTtsEngineStatusEl.style.color = '';
+  voiceTtsEngineStatusEl.textContent = '检测中…';
+  try {
+    const result = await window.dash.testTtsEngine(engine);
+    voiceTtsEngineStatusEl.style.color = result.ok ? '#2e8b45' : '#c4304a';
+    voiceTtsEngineStatusEl.textContent = result.ok ? `✓ 已配置（${result.detail}）` : `✗ ${result.detail}`;
+  } catch (err) {
+    voiceTtsEngineStatusEl.style.color = '#c4304a';
+    voiceTtsEngineStatusEl.textContent = `✗ 检测失败: ${err.message}`;
+  } finally {
+    voiceTtsEngineApplyBtnEl.disabled = false;
+  }
+});
+
+const voiceSttEngineApplyBtnEl = document.getElementById('voiceSttEngineApplyBtn');
+const voiceSttEngineStatusEl = document.getElementById('voiceSttEngineStatus');
+voiceSttEngineApplyBtnEl.addEventListener('click', async () => {
+  const engine = voiceSttEngineSelectEl.value;
+  voiceSttEngineApplyBtnEl.disabled = true;
+  voiceSttEngineStatusEl.style.color = '';
+  voiceSttEngineStatusEl.textContent = '检测中…';
+  try {
+    const result = await window.dash.testSttEngine(engine);
+    voiceSttEngineStatusEl.style.color = result.ok ? '#2e8b45' : '#c4304a';
+    voiceSttEngineStatusEl.textContent = result.ok ? `✓ 已配置（${result.detail}）` : `✗ ${result.detail}`;
+  } catch (err) {
+    voiceSttEngineStatusEl.style.color = '#c4304a';
+    voiceSttEngineStatusEl.textContent = `✗ 检测失败: ${err.message}`;
+  } finally {
+    voiceSttEngineApplyBtnEl.disabled = false;
+  }
+});
+
+voiceMimoApiKeyInputEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceMimoApiKey', e.target.value);
+});
+
+voiceMimoVoiceZhSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceMimoVoiceZh', e.target.value);
+});
+
+voiceMimoVoiceEnSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceMimoVoiceEn', e.target.value);
+});
+
+voiceMimoStyleSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceMimoStyleTagZh', e.target.value);
+});
+
+function wireMimoPreviewButton(btnEl, testText) {
+  if (!btnEl) return;
+  const idleLabel = btnEl.textContent;
+  btnEl.addEventListener('click', async () => {
+    if (!voiceMimoApiKeyInputEl.value) {
+      alert('请先填写 MiMo API Key');
+      return;
+    }
+    btnEl.disabled = true;
+    btnEl.textContent = idleLabel === 'Preview' ? 'Generating...' : '合成中...';
+    try {
+      const result = await window.dash.synthesizeSpeech(testText);
+      if (result.fileUrl) {
+        const audio = new Audio(result.fileUrl);
+        audio.play();
+        btnEl.textContent = idleLabel === 'Preview' ? 'Playing...' : '播放中...';
+        audio.onended = () => {
+          btnEl.textContent = idleLabel;
+          btnEl.disabled = false;
+        };
+        setTimeout(() => {
+          btnEl.textContent = idleLabel;
+          btnEl.disabled = false;
+        }, 30000);
+      } else {
+        alert('合成失败，请检查 API Key 和网络连接');
+        btnEl.textContent = idleLabel;
+        btnEl.disabled = false;
+      }
+    } catch (err) {
+      console.error('MiMo preview error:', err);
+      alert('试听出错: ' + err.message);
+      btnEl.textContent = idleLabel;
+      btnEl.disabled = false;
+    }
+  });
+}
+
+wireMimoPreviewButton(voicePreviewMimoZhBtnEl, '哦呀哦呀，少爷，今天气色看着倒是不错，是发生了什么好事吗？');
+wireMimoPreviewButton(voicePreviewMimoEnBtnEl, 'Ah, young master, you look rather well this evening.');
 
 voiceCpuModeEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceCpuMode', e.target.checked);
 });
+
+const voiceTtsFallbackLogBtnEl = document.getElementById('voiceTtsFallbackLogBtn');
+const voiceTtsFallbackLogEl = document.getElementById('voiceTtsFallbackLogEl');
+if (voiceTtsFallbackLogBtnEl) {
+  voiceTtsFallbackLogBtnEl.addEventListener('click', async () => {
+    const showing = voiceTtsFallbackLogEl.style.display !== 'none';
+    if (showing) {
+      voiceTtsFallbackLogEl.style.display = 'none';
+      return;
+    }
+    const { lines } = await window.dash.getTtsFallbackLog();
+    voiceTtsFallbackLogEl.textContent = lines.length ? lines.join('\n') : '（暂无降级记录——说明目前没有引擎失败过）';
+    voiceTtsFallbackLogEl.style.display = 'block';
+  });
+}
 
 // Chat settings handlers
 const chatEnabledEl = document.getElementById('chatEnabled');
@@ -1047,6 +1928,29 @@ chatOllamaUrlEl.addEventListener('change', (e) => {
 chatModelEl.addEventListener('change', (e) => {
   window.dash.setSetting('chatModel', e.target.value);
 });
+
+const chatReplyLanguageSelectEl2 = document.getElementById('chatReplyLanguageSelect');
+if (chatReplyLanguageSelectEl2) {
+  chatReplyLanguageSelectEl2.addEventListener('change', (e) => {
+    window.dash.setSetting('chatReplyLanguage', e.target.value);
+  });
+}
+
+const chatCatchphrasesUpdateBtnEl = document.getElementById('chatCatchphrasesUpdateBtn');
+const chatCatchphrasesStatusEl = document.getElementById('chatCatchphrasesStatus');
+let chatCatchphrasesStatusTimer = null;
+if (chatCatchphrasesUpdateBtnEl) {
+  chatCatchphrasesUpdateBtnEl.addEventListener('click', () => {
+    const inputEl = document.getElementById('chatCatchphrasesInput');
+    window.dash.setSetting('chatCatchphrases', inputEl.value);
+    if (chatCatchphrasesStatusTimer) clearTimeout(chatCatchphrasesStatusTimer);
+    chatCatchphrasesStatusEl.style.color = '#2e8b45';
+    chatCatchphrasesStatusEl.textContent = '✓ 已更新，下一条回复即可生效';
+    chatCatchphrasesStatusTimer = setTimeout(() => {
+      chatCatchphrasesStatusEl.textContent = '';
+    }, 60000);
+  });
+}
 
 function renderSettings(settings) {
   dashScreenTipModelEl.value = settings.screenTipsModel ?? '';
@@ -1131,11 +2035,28 @@ function renderSettings(settings) {
   voiceEdgeChineseSelectEl.value = settings.voiceEdgeChineseName ?? '';
   piperModelAvailable = !!settings.voiceTtsEngineAvailable?.piper;
   voiceCpuModeEl.checked = !!settings.voiceCpuMode;
+  voiceMimoApiKeyInputEl.value = settings.voiceMimoApiKey ?? '';
+  pendingMimoVoiceZh = settings.voiceMimoVoiceZh ?? '白桦';
+  pendingMimoVoiceEn = settings.voiceMimoVoiceEn ?? 'Dean';
+  pendingMimoStyleTagZh = settings.voiceMimoStyleTagZh ?? '';
   for (const group of voiceSettingsGroups) {
     group.style.display = !!settings.voiceEnabled ? 'block' : 'none';
   }
   updateTtsEnginePiperWarning();
   updateVoiceNameGroupVisibility();
+  if (voiceTtsEngineSelectEl.value === 'mimo-cloud') {
+    ensureMimoVoicesLoaded().then(() => {
+      voiceMimoVoiceZhSelectEl.value = pendingMimoVoiceZh;
+      voiceMimoVoiceEnSelectEl.value = pendingMimoVoiceEn;
+      voiceMimoStyleSelectEl.value = pendingMimoStyleTagZh;
+    });
+  }
+  if (settings.gpu) {
+    voiceGpuStatusHintEl.style.display = 'block';
+    voiceGpuStatusHintEl.textContent = settings.gpu.available
+      ? `检测到独立显卡：${settings.gpu.name} —— 本地高质量语音克隆引擎（IndexTTS2/OpenVoice等）以后可用`
+      : `未检测到 NVIDIA 独立显卡（${settings.gpu.reason ?? '仅集显'}）—— 本地语音克隆引擎不可用，已隐藏；建议用 Edge 或 MiMo 云端引擎`;
+  }
 
   // Populate chat settings
   chatEnabledEl.checked = !!settings.chatEnabled;
@@ -1143,6 +2064,10 @@ function renderSettings(settings) {
   chatProviderEl.value = settings.chatProvider ?? 'ollama';
   chatOllamaUrlEl.value = settings.chatOllamaUrl ?? 'http://localhost:11434';
   chatModelEl.value = settings.chatModel ?? 'gemma4:12b';
+  const chatCatchphrasesInputEl = document.getElementById('chatCatchphrasesInput');
+  if (chatCatchphrasesInputEl) chatCatchphrasesInputEl.value = settings.chatCatchphrases ?? '';
+  const chatReplyLanguageSelectEl = document.getElementById('chatReplyLanguageSelect');
+  if (chatReplyLanguageSelectEl) chatReplyLanguageSelectEl.value = settings.chatReplyLanguage ?? 'zh';
   for (const group of chatSettingsGroups) {
     group.style.display = !!settings.chatEnabled ? 'block' : 'none';
   }
@@ -3691,6 +4616,13 @@ memoryViewGraphBtnEl.addEventListener('click', () => showMemoryView('graph'));
 (async () => {
   const data = await window.dash.getData();
   renderOverview(data);
+  // The overview section is the one already marked active in the static
+  // HTML -- unlike every other tab, nothing clicks into it to trigger
+  // showSection('overview') on a fresh window, so its Claude-usage fetch +
+  // poll have to be kicked off here explicitly or the panel just sits
+  // empty until the user happens to click away and back.
+  loadClaudeUsage();
+  overviewPollTimer = setInterval(refreshOverview, OVERVIEW_POLL_MS);
   renderSettings(data.settings);
   renderTodos(data.todos);
   renderTasks(data.sessions);

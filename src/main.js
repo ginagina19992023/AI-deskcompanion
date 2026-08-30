@@ -14,8 +14,10 @@ import { createVoiceSttWatcher } from './voice-stt.js';
 import { createWhisperSttWatcher } from './voice-stt-whisper.js';
 import { synthesizePiper } from './voice-tts-piper.js';
 import { synthesizeEdge } from './voice-tts-edge.js';
+import { synthesizeMimo, MIMO_PRESET_VOICES } from './voice-tts-mimo.js';
 // import { synthesizeChattts } from './voice-tts-chattts.js'; // Temporarily disabled
 import { synthesizeSapi } from './voice-tts-sapi.js';
+import { detectNvidiaGpu } from './gpu-detect.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
 import { addTodo, completeTodo, removeTodo, editTodo, activeTodos, completedInRange, sortTodosForDisplay, startOfDay, startOfWeek } from './todos.js';
@@ -591,31 +593,78 @@ function stopCameraSense() {
 }
 
 // Unified TTS resolver: tries the configured engine, falling back down the
-// chain (edge-cloud -> piper -> sapi -> null) on any failure rather than
-// throwing, so a network hiccup or a never-run setup script never means
-// silence. The final 'sapi' rung -- also the direct path when the engine
-// is 'sapi' to begin with -- synthesizes via Windows' own SAPI voices to a
-// file ourselves rather than handing voice selection to the renderer's
-// browser speechSynthesis: confirmed live, Chromium on Windows silently
-// ignores SpeechSynthesisUtterance.voice for anything but the OS default,
-// so switching "音色" in the dashboard had no audible effect at all.
-// Driving System.Speech directly from here sidesteps that entirely. Only
-// if even that fails does this return null, telling the renderer to fall
-// back to its own browser voice as an absolute last resort.
+// chain (edge-cloud/mimo-cloud -> piper -> sapi -> null) on any failure
+// rather than throwing, so a network hiccup or a never-run setup script
+// never means silence. The final 'sapi' rung -- also the direct path when
+// the engine is 'sapi' to begin with -- synthesizes via Windows' own SAPI
+// voices to a file ourselves rather than handing voice selection to the
+// renderer's browser speechSynthesis: confirmed live, Chromium on Windows
+// silently ignores SpeechSynthesisUtterance.voice for anything but the OS
+// default, so switching "音色" in the dashboard had no audible effect at
+// all. Driving System.Speech directly from here sidesteps that entirely.
+// Only if even that fails does this return null, telling the renderer to
+// fall back to its own browser voice as an absolute last resort.
+//
+// Fallback reasons are always appended to data/tts-fallback.log (not just
+// console.error behind cfg.debug) -- confirmed live that a silent
+// cloud-engine failure with debug off leaves genuinely no trace of why the
+// voice suddenly switched to SAPI, which is exactly the kind of thing you
+// only need to diagnose *after* it already happened once, not something to
+// catch by having debug logging on ahead of time. Capped so it can't grow
+// unbounded over weeks of intermittent network hiccups.
+const ttsFallbackLogPath = join(dataDir, 'tts-fallback.log');
+const TTS_FALLBACK_LOG_MAX_LINES = 500;
+function logTtsFallback(stage, err) {
+  if (cfg.debug) console.error(`[tts] ${stage} failed, falling back:`, err.message);
+  try {
+    mkdirSync(dataDir, { recursive: true });
+    const line = `${new Date().toISOString()} [${stage}] ${err.message}\n`;
+    let existing = '';
+    try { existing = readFileSync(ttsFallbackLogPath, 'utf8'); } catch { /* first write */ }
+    const lines = (existing + line).split('\n').filter(Boolean);
+    const trimmed = lines.slice(-TTS_FALLBACK_LOG_MAX_LINES).join('\n') + '\n';
+    writeFileSync(ttsFallbackLogPath, trimmed, 'utf8');
+  } catch { /* logging the failure is best-effort, never worth breaking TTS over */ }
+}
+
 async function synthesizeSpeechFile(text, voiceCfg) {
   const engine = voiceCfg?.ttsEngine ?? 'sapi';
   if (engine === 'edge-cloud') {
     try {
       return await synthesizeEdge(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.edge });
     } catch (err) {
-      if (cfg.debug) console.error('[tts] edge-cloud failed, falling back:', err.message);
+      logTtsFallback('edge-cloud', err);
+    }
+  }
+  // MiMo (Xiaomi): second cloud option, no GPU/Python dependency -- plain
+  // HTTPS call. This machine has no NVIDIA GPU, which rules out every
+  // local voice-cloning model (IndexTTS2/OpenVoice/Fish Speech all assume
+  // CUDA), so a second cloud engine is the practical way to offer a
+  // higher-character-quality Mandarin voice than SAPI without a GPU.
+  // TTS is free-across-all-tiers only "for a limited time" per Xiaomi's
+  // own docs (no end date published) -- if that free period ends, or the
+  // network to it is just flaky, this should drop to the other proven
+  // cloud voice (Edge/Yunyang) rather than jumping straight past it to
+  // Piper/SAPI.
+  if (engine === 'mimo-cloud') {
+    if (voiceCfg.mimo?.apiKey) {
+      try {
+        return await synthesizeMimo(text, voiceCfg.mimo);
+      } catch (err) {
+        logTtsFallback('mimo-cloud', err);
+      }
+    }
+    try {
+      return await synthesizeEdge(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.edge });
+    } catch (err) {
+      logTtsFallback('edge-cloud (mimo fallback)', err);
     }
   }
   if ((engine === 'edge-cloud' || engine === 'piper') && voiceCfg.piper?.modelPath) {
     try {
       return await synthesizePiper(text, { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.piper });
     } catch (err) {
-      if (cfg.debug) console.error('[tts] piper failed, falling back:', err.message);
+      logTtsFallback('piper', err);
     }
   }
   // ChatTTS: open-source Chinese TTS, good alternative to Piper for Mandarin
@@ -637,7 +686,7 @@ async function synthesizeSpeechFile(text, voiceCfg) {
       scriptPath: join(root, 'tools', 'sapi-tts.ps1'),
     });
   } catch (err) {
-    if (cfg.debug) console.error('[tts] sapi failed, falling back to browser voice:', err.message);
+    logTtsFallback('sapi (final)', err);
   }
   return null;
 }
@@ -647,6 +696,36 @@ ipcMain.handle('pet:synthesize-speech', async (_e, text) => {
   if (!text) return { fileUrl: null };
   const result = await synthesizeSpeechFile(text, voiceCfg);
   return { fileUrl: result?.filePath ? pathToFileURL(result.filePath).href : null };
+});
+
+// Vocal/singing: MiMo-V2.5-TTS's singing mode is the *same* API as regular
+// TTS -- prefixing the lyrics with a (唱歌)/(sing)/(singing) style tag is
+// the entire difference (confirmed live: identical request shape, ~2-3x
+// longer audio for the same text, clearly sustained/melismatic rather than
+// spoken). No separate engine, no local model, no GPU -- this is why the
+// interface-first approach paid off here: voice-tts-mimo.js already
+// accepts an arbitrary styleTag, so singing needed zero changes to that
+// module, only this thin wrapper that always passes '唱歌' regardless of
+// the dashboard's own configured styleTagZh (singing is deliberately not
+// mixed with the mood tags like 磁性/沉稳 -- Xiaomi's own docs say not to
+// combine the singing tag with other style tags).
+ipcMain.handle('pet:synthesize-song', async (_e, { lyrics, voice } = {}) => {
+  const mimoCfg = cfg.voice?.mimo ?? {};
+  if (!lyrics || !mimoCfg.apiKey) return { fileUrl: null, error: !mimoCfg.apiKey ? '没有配置 MiMo API Key' : '没有歌词' };
+  const isChinese = /[一-鿿]/.test(lyrics);
+  const resolvedVoice = voice || (isChinese ? mimoCfg.voiceZh : mimoCfg.voiceEn) || mimoCfg.voice || 'mimo_default';
+  try {
+    const result = await synthesizeMimo(lyrics, {
+      apiKey: mimoCfg.apiKey,
+      baseUrl: mimoCfg.baseUrl,
+      voice: resolvedVoice,
+      styleTag: isChinese ? '唱歌' : 'singing',
+      timeoutMs: 30000,
+    });
+    return { fileUrl: pathToFileURL(result.filePath).href };
+  } catch (err) {
+    return { fileUrl: null, error: err.message };
+  }
 });
 
 function startVoiceStt() {
@@ -1192,6 +1271,37 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       cfg.voice.edge.voiceNameZh = value;
       if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
       break;
+    case 'chatReplyLanguage':
+      cfg.chat = cfg.chat ?? {};
+      cfg.chat.replyLanguage = value === 'en' ? 'en' : 'zh';
+      break;
+    case 'chatCatchphrases':
+      cfg.chat = cfg.chat ?? {};
+      // value arrives as a newline-separated textarea dump from the
+      // dashboard -- split/trim/drop-blank here so catchphraseInstruction()
+      // downstream never has to re-guard against stray empty lines.
+      cfg.chat.catchphrases = String(value).split('\n').map((l) => l.trim()).filter(Boolean);
+      break;
+    case 'voiceMimoApiKey':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.mimo = cfg.voice.mimo ?? {};
+      cfg.voice.mimo.apiKey = value;
+      break;
+    case 'voiceMimoVoiceZh':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.mimo = cfg.voice.mimo ?? {};
+      cfg.voice.mimo.voiceZh = value;
+      break;
+    case 'voiceMimoVoiceEn':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.mimo = cfg.voice.mimo ?? {};
+      cfg.voice.mimo.voiceEn = value;
+      break;
+    case 'voiceMimoStyleTagZh':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.mimo = cfg.voice.mimo ?? {};
+      cfg.voice.mimo.styleTagZh = value;
+      break;
     case 'cameraSenseIntervalMs':
       cfg.cameraSense = cfg.cameraSense ?? {};
       cfg.cameraSense.intervalMs = Math.max(30000, Number(value) || 120000);
@@ -1372,6 +1482,14 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       if (alive()) win.webContents.send('pet:text-color', hex);
       break;
     }
+    case 'assistantBubbleColor': {
+      // RGB triplet string like "255, 255, 255" -- pushed to pet window
+      // so its assistant chat bubble background matches the theme
+      cfg.theme = cfg.theme ?? {};
+      cfg.theme.assistantBubbleColor = value;
+      if (alive()) win.webContents.send('pet:assistant-bubble-color', value);
+      break;
+    }
     case 'backgroundColor': {
       // Dashboard-only (unlike skin/accent/text above) -- the control
       // panel's own base layer behind the sidebar/module glass blocks,
@@ -1401,7 +1519,7 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
       break;
     }
     case 'themePreset': {
-      const allowed = new Set(['classic', 'dark-red', 'dark-pink', 'light-pink', 'cyber-green', 'liquid-glass']);
+      const allowed = new Set(['classic', 'dark-red', 'dark-pink', 'light-pink', 'cyber-green', 'liquid-glass', 'eva-purple']);
       cfg.theme = cfg.theme ?? {};
       cfg.theme.preset = allowed.has(value) ? value : 'classic';
       // Picking a built-in preset directly (as opposed to
@@ -2316,6 +2434,8 @@ function dashboardSnapshot() {
       chatApiKeyEnv: cfg.chat?.apiKeyEnv ?? '',
       chatVoiceMode: !!cfg.chat?.voiceMode,
       chatOllamaUrl: cfg.chat?.ollamaUrl ?? 'http://localhost:11434',
+      chatCatchphrases: (cfg.chat?.catchphrases ?? []).join('\n'),
+      chatReplyLanguage: cfg.chat?.replyLanguage === 'en' ? 'en' : 'zh',
       workSupervisionEnabled: !!cfg.workSupervision?.enabled,
       workSupervisionIntervalMs: cfg.workSupervision?.intervalMs ?? 180000,
       sleepEnabled: !!cfg.sleepSchedule?.enabled,
@@ -2340,9 +2460,15 @@ function dashboardSnapshot() {
       voiceTtsEngine: cfg.voice?.ttsEngine ?? 'sapi',
       voiceEdgeEnglishName: cfg.voice?.edge?.voiceNameEn ?? '',
       voiceEdgeChineseName: cfg.voice?.edge?.voiceNameZh ?? '',
+      voiceMimoApiKey: cfg.voice?.mimo?.apiKey ?? '',
+      voiceMimoVoiceZh: cfg.voice?.mimo?.voiceZh ?? '白桦',
+      voiceMimoVoiceEn: cfg.voice?.mimo?.voiceEn ?? 'Dean',
+      voiceMimoStyleTagZh: cfg.voice?.mimo?.styleTagZh ?? '',
       voiceTtsEngineAvailable: {
         piper: !!cfg.voice?.piper?.modelPath,
+        mimo: !!cfg.voice?.mimo?.apiKey,
       },
+      gpu: detectNvidiaGpu(),
       voiceCpuMode: !!cfg.voice?.cpuMode,
       voicePushToTalkKey: cfg.voice?.pushToTalkKey ?? 'Alt+G',
       chatEnabled: !!cfg.chat?.enabled,
@@ -2404,6 +2530,83 @@ ipcMain.handle('dashboard:get-edge-voices', () => ({
     { name: 'zh-CN-YunyangNeural', label: '云阳 (专业，新闻播报风)' },
   ],
 }));
+ipcMain.handle('dashboard:get-mimo-voices', () => ({
+  // mimo_default is bilingual, so it's offered on both dropdowns rather
+  // than arbitrarily filed under just one language.
+  chinese: MIMO_PRESET_VOICES.filter((v) => v.id === 'mimo_default' || /[一-鿿]/.test(v.id)),
+  english: MIMO_PRESET_VOICES.filter((v) => v.id === 'mimo_default' || !/[一-鿿]/.test(v.id)),
+  styleTags: ['', '磁性', '沉稳', '温柔', '甜美', '低语', '活泼', '高冷', '沙哑'],
+}));
+
+// "应用并检测" buttons in the dashboard call these to actually verify a
+// selected engine will work, rather than only saving the setting and
+// finding out it's broken the next time the pet tries to speak/listen.
+// Cloud engines (edge/mimo) make one real, short-timeout request; local
+// engines (piper/whisper) just check their files exist -- an actual
+// whisper transcription needs a real recording, which this can't fake.
+ipcMain.handle('dashboard:test-tts-engine', async (_e, engine) => {
+  const voiceCfg = cfg.voice ?? {};
+  try {
+    if (engine === 'sapi') {
+      return { ok: true, detail: 'Windows 自带，随时可用' };
+    }
+    if (engine === 'piper') {
+      const modelPath = voiceCfg.piper?.modelPath;
+      if (!modelPath || !existsSync(modelPath)) {
+        return { ok: false, detail: '没有配置模型文件，或文件不存在——先运行 tools/piper/setup-piper.ps1' };
+      }
+      return { ok: true, detail: `模型文件存在：${basename(modelPath)}` };
+    }
+    if (engine === 'edge-cloud') {
+      await synthesizeEdge('测试', { pythonPath: voiceCfg.pythonPath || 'python', ...voiceCfg.edge, timeoutMs: 8000 });
+      return { ok: true, detail: '联网测试合成成功' };
+    }
+    if (engine === 'mimo-cloud') {
+      if (!voiceCfg.mimo?.apiKey) {
+        return { ok: false, detail: '没有填 API Key' };
+      }
+      await synthesizeMimo('测试', voiceCfg.mimo);
+      return { ok: true, detail: '联网测试合成成功' };
+    }
+    return { ok: false, detail: '未知引擎' };
+  } catch (err) {
+    return { ok: false, detail: err.message.slice(0, 200) };
+  }
+});
+
+ipcMain.handle('dashboard:get-tts-fallback-log', () => {
+  try {
+    const text = readFileSync(ttsFallbackLogPath, 'utf8');
+    return { lines: text.split('\n').filter(Boolean).slice(-50).reverse() };
+  } catch {
+    return { lines: [] };
+  }
+});
+
+ipcMain.handle('dashboard:test-stt-engine', async (_e, engine) => {
+  const whisperCfg = cfg.voice?.whisper ?? {};
+  try {
+    if (engine === 'sapi') {
+      return { ok: true, detail: 'Windows 自带，随时可用' };
+    }
+    if (engine === 'whisper') {
+      const exePath = whisperCfg.whisperExePath || join(__dirname, '..', 'tools', 'whisper', 'whisper-cli.exe');
+      const modelPath = whisperCfg.modelPath || join(__dirname, '..', 'tools', 'whisper', 'models', 'ggml-base.bin');
+      const micPath = whisperCfg.micRecordPath || join(__dirname, '..', 'tools', 'mic-record', 'mic-record.exe');
+      const missing = [];
+      if (!existsSync(exePath)) missing.push('whisper-cli.exe');
+      if (!existsSync(modelPath)) missing.push(`模型文件 (${basename(modelPath)})`);
+      if (!existsSync(micPath)) missing.push('mic-record.exe');
+      if (missing.length) {
+        return { ok: false, detail: `缺少：${missing.join('、')}——先运行 tools/whisper/setup-whisper.ps1` };
+      }
+      return { ok: true, detail: `已就绪：${basename(modelPath)}` };
+    }
+    return { ok: false, detail: '未知引擎' };
+  } catch (err) {
+    return { ok: false, detail: err.message.slice(0, 200) };
+  }
+});
 ipcMain.handle('dashboard:chat-get-history', () => ({ messages: curConv().messages }));
 ipcMain.handle('dashboard:get-memory', () => dashboardMemoryPayload());
 ipcMain.handle('dashboard:delete-memory', (_e, id) => {
@@ -2638,7 +2841,16 @@ ipcMain.on('pet:fatal', (_e, msg) => {
 });
 
 ipcMain.on('pet:drag-start', () => {
-  if (!win || win.isDestroyed() || chatPanelOpen || todoPanelOpen || toolbarOpen) return;
+  // chatPanelOpen deliberately does NOT block a drag here: the chat panel
+  // is the same window grown taller (see openChatPanel), not a separate
+  // one, so tickCursor()'s win.setPosition() during a drag already carries
+  // the whole panel along for free -- the renderer only ever fires this in
+  // the first place from a pointerdown on the sprite canvas itself (see
+  // renderer.js), never from clicking inside the panel's own UI, so this
+  // can't be triggered by, say, dragging a chat message. todoPanelOpen and
+  // toolbarOpen keep the block: those panels' layouts aren't verified safe
+  // to drag the same way.
+  if (!win || win.isDestroyed() || todoPanelOpen || toolbarOpen) return;
   dragging = true;
   wandering = false;
   wanderTarget = null;
@@ -3059,6 +3271,23 @@ function pollAiStatus() {
   if (rateLimitsSignature !== lastRateLimitsSignature) {
     lastRateLimitsSignature = rateLimitsSignature;
     win.webContents.send('pet:rate-limits', rateLimits);
+    // Confirmed-live user report: the pet badge visibly lags the terminal's
+    // own statusline by more than one hook tick. This logs how stale the
+    // file already was the instant *our* poll picked it up (Date.now() -
+    // rateLimits.ts) -- if that gap is small, the lag is upstream (Claude
+    // Code just doesn't re-fire the hook that often); if it's large, this
+    // poll loop itself is the thing falling behind.
+    if (rateLimits?.ts) {
+      try {
+        mkdirSync(dataDir, { recursive: true });
+        const line = `${new Date().toISOString()} pushed rate-limits, file.ts age=${Date.now() - rateLimits.ts}ms fiveHour=${rateLimits.fiveHourUsedPercent} week=${rateLimits.weekUsedPercent}\n`;
+        const p = join(dataDir, 'rate-limit-poll.log');
+        let existing = '';
+        try { existing = readFileSync(p, 'utf8'); } catch { /* first write */ }
+        const lines = (existing + line).split('\n').filter(Boolean).slice(-200);
+        writeFileSync(p, lines.join('\n') + '\n', 'utf8');
+      } catch { /* diagnostic only, never worth breaking the real push over */ }
+    }
   }
 
   // A transition *into* idle/celebrate *from* an active status is a task
@@ -3484,8 +3713,8 @@ const CHAT_CONTEXT_MESSAGES = 16; // most recent messages of the *current* conv 
 // colon) despite the instruction saying not to; the original strict
 // pattern didn't match that, so the whole raw tag fell through to both
 // the display bubble and TTS instead of being stripped.
-const EMOTION_TAG_RE = /^\[EMOTION:\s*(happy|sad|angry|surprised|neutral)\s*\]\s*\n?/i;
-const EMOTION_EMOJI = { happy: '😊', sad: '😔', angry: '😠', surprised: '😲', neutral: null };
+const EMOTION_TAG_RE = /^\[EMOTION:\s*(happy|sad|angry|surprised|playful|neutral)\s*\]\s*\n?/i;
+const EMOTION_EMOJI = { happy: '😊', sad: '😔', angry: '😠', surprised: '😲', playful: '😈', neutral: null };
 
 function saveChatConvs() {
   if (chatConvs.length > CHAT_CONVS_MAX) chatConvs = chatConvs.slice(-CHAT_CONVS_MAX);
@@ -3627,7 +3856,7 @@ ipcMain.on('pet:chat-send-with-image', async (e, { text, imageBase64 } = {}) => 
   saveChatConvs();
   const pet = activePet();
   const basePrompt = pet.chatSystemPrompt ?? cfg.chat?.systemPrompt;
-  const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${EMOTION_TAG_INSTRUCTION}` : `${visionCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
+  const effectiveCfg = { ...visionCfg, systemPrompt: basePrompt ? `${basePrompt}${await memoryContextBlock(userText)}${catchphraseInstruction()}${replyLanguageInstruction()}${EMOTION_TAG_INSTRUCTION}` : `${visionCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
   // Recent text history for continuity, then this turn WITH the image
   // attached -- only the current message carries pixels, older turns stay
   // text-only (Ollama attaches images per-message, not per-conversation).
@@ -3881,6 +4110,34 @@ function bm25Scores(query, docs, k1 = 1.5, b = 0.75) {
     }
     return score;
   });
+}
+
+// Catchphrases the user configures in the dashboard's character panel --
+// woven into the system prompt as a soft instruction rather than forced
+// verbatim into every reply, so the model uses them where they actually
+// fit the moment instead of tacking one onto every single message.
+// cfg.chat.catchphrases lives directly in config.json (not a separate
+// file), so a dashboard save via setSetting() is visible to the very next
+// chat request with no restart -- "点击更新即刻生效".
+function catchphraseInstruction() {
+  const phrases = (cfg.chat?.catchphrases ?? []).filter((p) => p && p.trim());
+  if (!phrases.length) return '';
+  return `\n\n你有以下口头禅，符合语境时可以自然地穿插使用（不必每条回复都用，也不要生硬堆砌）：${phrases.map((p) => `"${p}"`).join('、')}`;
+}
+
+// Independent of the dashboard's own UI language (src/i18n.js) -- that one
+// only affects what language the *control panel itself* is drawn in.
+// cfg.chat.replyLanguage is what language the character talks in, which
+// cascades correctly on its own: the TTS layer already picks Chinese vs
+// English voices/engines by detecting the actual reply text's script (see
+// pickVoiceName in voice-tts-edge.js / pickVoiceAndStyle in
+// voice-tts-mimo.js), so making the model actually reply in English is the
+// only piece needed here -- voice selection follows for free. 'zh' is a
+// no-op: every pet's own chatSystemPrompt already specifies Chinese, and
+// this only needs to override that, never reinforce it.
+function replyLanguageInstruction() {
+  if (cfg.chat?.replyLanguage !== 'en') return '';
+  return '\n\nIMPORTANT: Regardless of any earlier instruction about replying in Chinese, always reply in English from now on. Keep your character and personality exactly the same -- only the language changes.';
 }
 
 async function memoryContextBlock(queryText) {
@@ -4281,7 +4538,7 @@ ipcMain.on('pet:chat-send', async (e, text) => {
   const basePrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
   const memBlock = basePrompt ? await memoryContextBlock(userText) : '';
   if (cfg.debug) console.log('[chat] step: memoryContextBlock done, len=', memBlock.length);
-  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${memBlock}${EMOTION_TAG_INSTRUCTION}` : `${chatCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
+  const effectiveCfg = { ...chatCfg, systemPrompt: basePrompt ? `${basePrompt}${memBlock}${catchphraseInstruction()}${replyLanguageInstruction()}${EMOTION_TAG_INSTRUCTION}` : `${chatCfg.systemPrompt ?? ''}${EMOTION_TAG_INSTRUCTION}` };
   const context = conv.messages.slice(-CHAT_CONTEXT_MESSAGES).map(({ role, content }) => ({ role, content }));
   if (cfg.debug) console.log('[chat] step: calling streamChatReply, context len=', context.length);
   try {

@@ -6,6 +6,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('dash', {
   getData: () => ipcRenderer.invoke('dashboard:get-data'),
   getEdgeVoices: () => ipcRenderer.invoke('dashboard:get-edge-voices'),
+  getMimoVoices: () => ipcRenderer.invoke('dashboard:get-mimo-voices'),
+  testTtsEngine: (engine) => ipcRenderer.invoke('dashboard:test-tts-engine', engine),
+  testSttEngine: (engine) => ipcRenderer.invoke('dashboard:test-stt-engine', engine),
+  getTtsFallbackLog: () => ipcRenderer.invoke('dashboard:get-tts-fallback-log'),
   getModels: () => ipcRenderer.invoke('dashboard:models'),
   getReport: (kind) => ipcRenderer.invoke('dashboard:report', kind),
   getReports: () => ipcRenderer.invoke('dashboard:get-reports'),
@@ -83,5 +87,6 @@ contextBridge.exposeInMainWorld('dash', {
   onChatHistory: (cb) => ipcRenderer.on('pet:chat-history', (_e, data) => cb(data)),
   captureScreenshot: () => ipcRenderer.invoke('pet:capture-screenshot'),
   synthesizeSpeech: (text) => ipcRenderer.invoke('pet:synthesize-speech', text),
+  synthesizeSong: (lyrics, voice) => ipcRenderer.invoke('pet:synthesize-song', { lyrics, voice }),
   chatSendWithImage: (text, imageBase64) => ipcRenderer.send('pet:chat-send-with-image', { text, imageBase64 }),
 });

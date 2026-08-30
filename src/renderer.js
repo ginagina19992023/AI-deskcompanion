@@ -134,10 +134,16 @@ function applyOverrideColor(varName, hex) {
 }
 const applyAccentColor = (hex) => applyOverrideColor('--theme-accent-rgb', hex);
 const applyTextColor = (hex) => applyOverrideColor('--theme-text-rgb', hex);
+const applyAssistantBubbleColor = (rgbTriple) => {
+  if (rgbTriple) document.documentElement.style.setProperty('--theme-assistant-bubble-rgb', rgbTriple);
+  else document.documentElement.style.removeProperty('--theme-assistant-bubble-rgb');
+};
 applyAccentColor(cfg.theme?.accentColor);
 applyTextColor(cfg.theme?.textColor);
+applyAssistantBubbleColor(cfg.theme?.assistantBubbleColor);
 window.pet.onAccentColor((hex) => applyAccentColor(hex));
 window.pet.onTextColor((hex) => applyTextColor(hex));
+window.pet.onAssistantBubbleColor((rgbTriple) => applyAssistantBubbleColor(rgbTriple));
 
 // Theme preset ('classic' | 'dark-red' | 'dark-pink' | 'light-pink') and
 // UI scale -- same [data-theme]/--ui-scale variables dashboard.html's
@@ -2391,21 +2397,30 @@ function drawAttentionLight() {
 // Rate limits are official statusLine data (see
 // ~/.claude/hooks/pet-statusline.cjs and https://code.claude.com/docs/en/statusline)
 // pushed from main.js's pollAiStatus, not polled here.
-// Visual, not text -- three bars, each one's *fill length* is how much of
-// that window is still remaining (not used). Claude Code's statusLine only
-// ever provides five_hour and seven_day (weekly) windows officially (see
+// Bar fill AND the percentage label both track *used*, matching the
+// terminal statusline's own "5h 56% | 7d 48%" convention and the
+// dashboard's usage panel -- confirmed live that showing *remaining*
+// instead (the original design here) reads as flatly wrong the instant
+// it's held up against either of those, since e.g. a used% of 56 and a
+// remaining% of 44 are both plausible-looking numbers on their own, just
+// answering the opposite question. Claude Code's statusLine only ever
+// provides five_hour and seven_day (weekly) windows officially (see
 // https://code.claude.com/docs/en/statusline) -- there's no "monthly"
 // figure to show, so this deliberately doesn't invent a third row for one.
 function bubbleUsageCard(entry) {
   const card = document.createElement('div');
   card.className = 'bubble-usage-card';
+  // Text glyphs instead of ⏱️/📅 -- confirmed live those two read as similar
+  // enough at a glance (both small, both muted-color emoji) to not obviously
+  // map to "5-hour" vs "weekly" without pausing to think; 💬/5/W each read
+  // as their own thing instantly.
   const rows = [
-    { icon: '💬', remaining: typeof entry?.contextPercent === 'number' ? 1 - entry.contextPercent : null },
-    { icon: '⏱️', remaining: rateLimits?.fiveHourUsedPercent != null ? 1 - rateLimits.fiveHourUsedPercent / 100 : null },
-    { icon: '📅', remaining: rateLimits?.weekUsedPercent != null ? 1 - rateLimits.weekUsedPercent / 100 : null },
+    { icon: '💬', used: typeof entry?.contextPercent === 'number' ? entry.contextPercent : null },
+    { icon: '5', used: rateLimits?.fiveHourUsedPercent != null ? rateLimits.fiveHourUsedPercent / 100 : null },
+    { icon: 'W', used: rateLimits?.weekUsedPercent != null ? rateLimits.weekUsedPercent / 100 : null },
   ];
   for (const r of rows) {
-    if (r.remaining === null) continue;
+    if (r.used === null) continue;
     const row = document.createElement('div');
     row.className = 'bubble-usage-row';
     const icon = document.createElement('span');
@@ -2415,7 +2430,7 @@ function bubbleUsageCard(entry) {
     track.className = 'bubble-usage-track';
     const fill = document.createElement('div');
     fill.className = 'bubble-usage-fill';
-    const pct = Math.round(Math.max(0, Math.min(1, r.remaining)) * 100);
+    const pct = Math.round(Math.max(0, Math.min(1, r.used)) * 100);
     fill.style.width = `${pct}%`;
     track.appendChild(fill);
     const label = document.createElement('span');

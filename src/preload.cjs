@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('pet', {
   onSkinColor: (fn) => ipcRenderer.on('pet:skin-color', (_e, v) => fn(v)),
   onAccentColor: (fn) => ipcRenderer.on('pet:accent-color', (_e, v) => fn(v)),
   onTextColor: (fn) => ipcRenderer.on('pet:text-color', (_e, v) => fn(v)),
+  onAssistantBubbleColor: (fn) => ipcRenderer.on('pet:assistant-bubble-color', (_e, v) => fn(v)),
   onThemePreset: (fn) => ipcRenderer.on('pet:theme-preset', (_e, v) => fn(v)),
   onUiScale: (fn) => ipcRenderer.on('pet:ui-scale', (_e, v) => fn(v)),
   onTipDisplayMode: (fn) => ipcRenderer.on('pet:tip-display-mode', (_e, v) => fn(v)),

@@ -28,7 +28,7 @@ const DEFAULT_SYSTEM_PROMPT =
 // measurement above). main.js's chat handlers parse and strip this line
 // before it ever reaches the display bubble.
 export const EMOTION_TAG_INSTRUCTION =
-  '\n\n在你的回复最开头单独一行，用方括号标注你此刻的情绪，格式严格为 [EMOTION:xxx]，xxx 只能是以下之一（英文小写）：happy, sad, angry, surprised, neutral。这一行之后另起一行才是你真正对用户说的话。';
+  '\n\n在你的回复最开头单独一行，用方括号标注你此刻的情绪，格式严格为 [EMOTION:xxx]，xxx 只能是以下之一（英文小写）：happy, sad, angry, surprised, playful, neutral。playful 用于调侃、揶揄、毒舌吐槽、俏皮卖关子这类带点戏谑感的语气——符合你角色设定里那种"忠诚但嘴不饶人"的反应就优先用这个，而不是笼统地归为 neutral；neutral 只用于真正平铺直叙、没有情绪色彩的陈述句。这一行之后另起一行才是你真正对用户说的话。';
 
 async function readNdjsonStream(res, onLine) {
   const reader = res.body.getReader();

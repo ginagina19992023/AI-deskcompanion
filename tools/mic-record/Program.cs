@@ -166,16 +166,21 @@ namespace MicRecord
             }
         }
 
-        static int Main(string[] args)
+        // Opens the default microphone endpoint fresh and starts the WASAPI
+        // client streaming. Only ever called from inside a START -- see
+        // Main() below. Kept as its own method (rather than the previous
+        // do-it-once-at-launch shape) specifically so the capture device
+        // is *not* touched at all between utterances: confirmed live (same
+        // root cause already fixed once for the SAPI engine in
+        // voice-stt.ps1, commit 274a72b) that requesting the eCommunications
+        // role and calling IAudioClient.Start() keeps Windows' "in a call"
+        // detection lit and ducks other apps' volume for as long as the
+        // stream stays started, not just while audio is actually being
+        // buffered -- so "running" alone was never enough to fix this, the
+        // stream itself has to not exist outside a real utterance.
+        static bool OpenDevice(out IAudioClient client, out IAudioCaptureClient capture, out WAVEFORMATEX fmt, out bool isFloat)
         {
-            string outDir = args.Length > 0 ? args[0] : Path.GetTempPath();
-            Directory.CreateDirectory(outDir);
-
-            IAudioClient client;
-            IAudioCaptureClient capture;
-            WAVEFORMATEX fmt;
-            bool isFloat;
-
+            client = null; capture = null; fmt = default(WAVEFORMATEX); isFloat = false;
             try
             {
                 var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
@@ -183,18 +188,22 @@ namespace MicRecord
                 // eCommunications, not eMultimedia -- tuned for voice input
                 // (often applies the mic's noise-suppression/AGC endpoint
                 // effects that a "communications" role activates), matching
-                // what a voice-chat app would normally request.
+                // what a voice-chat app would normally request. This is
+                // also exactly the role Windows watches to decide "an app
+                // is in a call" and duck other apps' volume, which is the
+                // whole reason this is opened only for the START..STOP
+                // window rather than for the process's whole lifetime.
                 int hr = enumerator.GetDefaultAudioEndpoint(EDataFlow.eCapture, ERole.eCommunications, out device);
                 if (hr != 0 || device == null)
                 {
                     Emit("{\"status\":\"error\",\"message\":\"no default microphone (hr=" + hr + ")\"}");
-                    return 1;
+                    return false;
                 }
 
                 Guid iidAudioClient = typeof(IAudioClient).GUID;
                 object clientObj;
                 hr = device.Activate(ref iidAudioClient, CLSCTX_ALL, IntPtr.Zero, out clientObj);
-                if (hr != 0) { Emit("{\"status\":\"error\",\"message\":\"Activate(IAudioClient) failed hr=" + hr + "\"}"); return 1; }
+                if (hr != 0) { Emit("{\"status\":\"error\",\"message\":\"Activate(IAudioClient) failed hr=" + hr + "\"}"); return false; }
                 client = (IAudioClient)clientObj;
 
                 IntPtr pFormat;
@@ -204,78 +213,36 @@ namespace MicRecord
 
                 long hnsBufferDuration = 10000000; // 1s
                 hr = client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, hnsBufferDuration, 0, pFormat, IntPtr.Zero);
-                if (hr != 0) { Emit("{\"status\":\"error\",\"message\":\"Initialize failed hr=" + hr + "\"}"); return 1; }
+                if (hr != 0) { Emit("{\"status\":\"error\",\"message\":\"Initialize failed hr=" + hr + "\"}"); return false; }
 
                 Guid iidCaptureClient = typeof(IAudioCaptureClient).GUID;
                 object captureObj;
                 hr = client.GetService(ref iidCaptureClient, out captureObj);
-                if (hr != 0) { Emit("{\"status\":\"error\",\"message\":\"GetService(IAudioCaptureClient) failed hr=" + hr + "\"}"); return 1; }
+                if (hr != 0) { Emit("{\"status\":\"error\",\"message\":\"GetService(IAudioCaptureClient) failed hr=" + hr + "\"}"); return false; }
                 capture = (IAudioCaptureClient)captureObj;
 
                 client.Start();
                 Emit("{\"status\":\"started\",\"sampleRate\":" + fmt.nSamplesPerSec + ",\"channels\":" + fmt.nChannels + ",\"bits\":" + fmt.wBitsPerSample + "}");
+                return true;
             }
             catch (Exception ex)
             {
                 Emit("{\"status\":\"error\",\"message\":" + JsonString(ex.Message) + "}");
-                return 1;
+                return false;
             }
+        }
 
-            // Background polling thread pulls WASAPI packets continuously
-            // (same 15ms cadence as audio-nod) regardless of START/STOP
-            // state, but only appends to pcmBuffer while it's non-null --
-            // this keeps the audio endpoint always open (avoids paying
-            // device-open latency on every utterance) while still only
-            // capturing audio during an actual START..STOP window.
-            var captureThread = new Thread(() =>
-            {
-                int channels = Math.Max(1, (int)fmt.nChannels);
-                while (true)
-                {
-                    Thread.Sleep(15);
-                    uint packetSize;
-                    capture.GetNextPacketSize(out packetSize);
-                    while (packetSize != 0)
-                    {
-                        IntPtr pData; uint framesAvailable; uint flags; long devPos, qpcPos;
-                        capture.GetBuffer(out pData, out framesAvailable, out flags, out devPos, out qpcPos);
-                        if (framesAvailable > 0 && pData != IntPtr.Zero && running)
-                        {
-                            int totalSamples = (int)framesAvailable * channels;
-                            var mono = new short[framesAvailable];
-                            if (isFloat)
-                            {
-                                var buf = new float[totalSamples];
-                                Marshal.Copy(pData, buf, 0, totalSamples);
-                                for (int i = 0; i < framesAvailable; i++)
-                                {
-                                    double sum = 0;
-                                    for (int c = 0; c < channels; c++) sum += buf[i * channels + c];
-                                    double avg = sum / channels;
-                                    mono[i] = (short)Math.Max(-32768, Math.Min(32767, avg * 32767.0));
-                                }
-                            }
-                            else
-                            {
-                                var buf = new short[totalSamples];
-                                Marshal.Copy(pData, buf, 0, totalSamples);
-                                for (int i = 0; i < framesAvailable; i++)
-                                {
-                                    int sum = 0;
-                                    for (int c = 0; c < channels; c++) sum += buf[i * channels + c];
-                                    mono[i] = (short)(sum / channels);
-                                }
-                            }
-                            AppendResampled(mono, (int)fmt.nSamplesPerSec);
-                        }
-                        capture.ReleaseBuffer(framesAvailable);
-                        capture.GetNextPacketSize(out packetSize);
-                    }
-                }
-            });
-            captureThread.IsBackground = true;
-            captureThread.Start();
+        static int Main(string[] args)
+        {
+            string outDir = args.Length > 0 ? args[0] : Path.GetTempPath();
+            Directory.CreateDirectory(outDir);
 
+            // No device is opened here anymore -- OpenDevice() runs fresh
+            // per START, and the client/capture thread it creates exits
+            // when that utterance's STOP arrives. The ~150-300ms this adds
+            // to time-to-first-audio per utterance is the same trade this
+            // app already made for the SAPI engine; it's not paid while
+            // idle, which is the part that actually matters here.
             int uttCounter = 0;
             for (;;)
             {
@@ -285,17 +252,71 @@ namespace MicRecord
                 if (cmd == "EXIT") break;
                 if (cmd == "START")
                 {
-                    if (!running)
+                    if (running) continue;
+                    IAudioClient client; IAudioCaptureClient capture; WAVEFORMATEX fmt; bool isFloat;
+                    if (!OpenDevice(out client, out capture, out fmt, out isFloat)) continue;
+
+                    lock (bufLock) { pcmBuffer = new MemoryStream(); }
+                    running = true;
+
+                    var captureThread = new Thread(() =>
                     {
-                        lock (bufLock) { pcmBuffer = new MemoryStream(); }
-                        running = true;
-                    }
+                        int channels = Math.Max(1, (int)fmt.nChannels);
+                        while (running)
+                        {
+                            Thread.Sleep(15);
+                            uint packetSize;
+                            capture.GetNextPacketSize(out packetSize);
+                            while (packetSize != 0)
+                            {
+                                IntPtr pData; uint framesAvailable; uint flags; long devPos, qpcPos;
+                                capture.GetBuffer(out pData, out framesAvailable, out flags, out devPos, out qpcPos);
+                                if (framesAvailable > 0 && pData != IntPtr.Zero)
+                                {
+                                    int totalSamples = (int)framesAvailable * channels;
+                                    var mono = new short[framesAvailable];
+                                    if (isFloat)
+                                    {
+                                        var buf = new float[totalSamples];
+                                        Marshal.Copy(pData, buf, 0, totalSamples);
+                                        for (int i = 0; i < framesAvailable; i++)
+                                        {
+                                            double sum = 0;
+                                            for (int c = 0; c < channels; c++) sum += buf[i * channels + c];
+                                            double avg = sum / channels;
+                                            mono[i] = (short)Math.Max(-32768, Math.Min(32767, avg * 32767.0));
+                                        }
+                                    }
+                                    else
+                                    {
+                                        var buf = new short[totalSamples];
+                                        Marshal.Copy(pData, buf, 0, totalSamples);
+                                        for (int i = 0; i < framesAvailable; i++)
+                                        {
+                                            int sum = 0;
+                                            for (int c = 0; c < channels; c++) sum += buf[i * channels + c];
+                                            mono[i] = (short)(sum / channels);
+                                        }
+                                    }
+                                    AppendResampled(mono, (int)fmt.nSamplesPerSec);
+                                }
+                                capture.ReleaseBuffer(framesAvailable);
+                                capture.GetNextPacketSize(out packetSize);
+                            }
+                        }
+                        // running flipped false by STOP below -- stop the
+                        // stream from this same thread that's been driving
+                        // it, so nothing else needs a reference to `client`.
+                        try { client.Stop(); } catch { /* device may already be gone (e.g. unplugged) */ }
+                    });
+                    captureThread.IsBackground = true;
+                    captureThread.Start();
                 }
                 else if (cmd == "STOP")
                 {
                     if (running)
                     {
-                        running = false;
+                        running = false; // captureThread observes this and stops the WASAPI client itself
                         byte[] pcm;
                         lock (bufLock)
                         {

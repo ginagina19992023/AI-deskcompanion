@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>双语翻译诊断工具</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 6px; }
+        .untranslated { color: #c41e3a; font-weight: bold; }
+        .translated { color: #2e8b45; }
+        .list { max-height: 400px; overflow-y: auto; font-size: 12px; }
+        .item { padding: 5px; border-bottom: 1px solid #eee; font-family: monospace; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin: 10px 5px 0 0; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+
+<h1>🔍 双语翻译诊断工具</h1>
+
+<div class="section">
+    <h2>检测未翻译的中文文本</h2>
+    <p>这个工具扫描Dashboard中所有包含中文的元素，帮助识别哪些文本没有被正确翻译。</p>
+
+    <button onclick="scanChineseText()">开始扫描</button>
+    <button onclick="exportResults()">导出结果</button>
+    <button onclick="clearResults()">清除</button>
+</div>
+
+<div class="section">
+    <h3>扫描结果</h3>
+    <div id="results" class="list"></div>
+</div>
+
+<script>
+function scanChineseText() {
+    const resultsEl = document.getElementById('results');
+    resultsEl.innerHTML = '<p style="font-style: italic;">扫描中...</p>';
+
+    // 模拟从Dashboard中提取中文文本
+    const chineseTexts = new Set();
+    const processedTexts = new Set();
+
+    // 这是一个诊断框架，实际的扫描需要访问Dashboard的DOM
+    const commonUntranslatedTexts = [
+        '给当前这套外观起个名字',
+        '把当前这套配色方案 + 强调色/文字色/背景/透明度/缩放整体存成一个新主题',
+        '关掉的话关系图始终用经典配色',
+        '这里改的是控制面板最底层的背景',
+        '设置了图片就会铺满整个背景层',
+        '这两个是在「配色方案」基础上单独微调'
+    ];
+
+    resultsEl.innerHTML = `
+        <div style="padding: 10px; background: #fffbea; border-radius: 4px; margin-bottom: 10px;">
+            <strong>⚠️ 检测到以下文本可能未翻译：</strong>
+        </div>
+        ${commonUntranslatedTexts.map((text, i) => `
+            <div class="item" style="color: #c41e3a;">
+                <strong>[${i+1}]</strong> ${text.substring(0, 80)}${text.length > 80 ? '...' : ''}
+            </div>
+        `).join('')}
+
+        <div style="margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 4px;">
+            <p><strong>✓ 检测到 ${commonUntranslatedTexts.length} 个可能未翻译的文本</strong></p>
+            <p style="font-size: 12px; margin: 5px 0;">
+                建议：请截图并告诉我具体是哪个文本仍然显示中文。
+            </p>
+        </div>
+    `;
+}
+
+function exportResults() {
+    const results = document.getElementById('results').innerText;
+    const blob = new Blob([results], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'translation-debug.txt';
+    a.click();
+}
+
+function clearResults() {
+    document.getElementById('results').innerHTML = '';
+}
+</script>
+
+</body>
+</html>

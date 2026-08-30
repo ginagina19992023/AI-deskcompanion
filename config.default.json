@@ -220,6 +220,15 @@
       "_what": "ttsEngine 为 'edge-cloud' 时才用得上。voiceName 可选值用 `python -m edge_tts --list-voices` 查看（比如 zh-CN-YunxiNeural 男声/zh-CN-XiaoxiaoNeural 女声），timeoutMs 是判定「联网失败，退回本地」的等待上限。",
       "voiceName": "zh-CN-YunxiNeural",
       "timeoutMs": 6000
+    },
+    "mimo": {
+      "_what": "ttsEngine 为 'mimo-cloud' 时才用得上——小米 MiMo-V2.5-TTS 云端 API，跟 edge-cloud 一样不需要本机显卡。apiKey 需要自己去 https://platform.xiaomimimo.com 注册账号、在「API管理」页生成（TTS 目前所有套餐层级限时免费，没公布到期日）；没填这里就不会走这条链路，自动退到下一级引擎。voiceZh/voiceEn 是分别给中文/英文文本用的预置音色 ID（跟 edge.voiceNameZh/voiceNameEn 同一套逻辑——自动按文本语言选，见 dashboard 下拉框），voice 是两者都没配时的统一后备。styleTagZh 是仅对中文语音生效的语气标签（如「磁性」「沉稳」「温柔」），会拼进合成文本前面影响音色表现，留空则不加修饰；英文文本不套用语气标签（预置的语气词都是中文）。",
+      "apiKey": "",
+      "baseUrl": "https://api.xiaomimimo.com",
+      "voice": "mimo_default",
+      "voiceZh": "白桦",
+      "voiceEn": "Dean",
+      "styleTagZh": "磁性"
     }
   },
   "companion": {

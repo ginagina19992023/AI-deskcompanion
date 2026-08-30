@@ -22,7 +22,7 @@ CHINESE_VOICES = [
     ('zh-CN-YunhaoNeural', '云浩 (磁性，电台风)'),
 ]
 
-TEST_TEXT = "晚上好，少爷。今天过得还算体面吧？"
+TEST_TEXT = "哦呀哦呀，少爷，今天气色看着倒是不错，是发生了什么好事吗？"
 OUTPUT_DIR = Path(__file__).parent.parent / "data" / "voice-samples"
 
 async def generate_sample(voice_name: str, label: str):

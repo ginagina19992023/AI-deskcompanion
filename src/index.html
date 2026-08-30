@@ -66,6 +66,12 @@
     --theme-text-rgb: 51, 51, 51;
     --theme-assistant-bubble-rgb: 255, 255, 255;
   }
+  html[data-theme="eva-purple"] {
+    --skin-rgb: 25, 18, 35;
+    --theme-accent-rgb: 165, 62, 190;
+    --theme-text-rgb: 230, 220, 245;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
   /* Chat panel/todo panel only -- zooming the whole document would also
      scale the sprite canvas's own coordinate math, which is driven by
      real pixel measurements elsewhere in renderer.js and isn't meant to
@@ -190,7 +196,7 @@
     width: 100%;
   }
   .bubble-usage-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
-  .bubble-usage-icon { font-size: 0.85em; flex: none; line-height: 1; }
+  .bubble-usage-icon { font-size: 0.85em; flex: none; line-height: 1; font-weight: 700; min-width: 1.1em; text-align: center; }
   .bubble-usage-track { flex: 1; min-width: 12px; height: 6px; border-radius: 3px; background: rgba(var(--theme-accent-rgb), 0.1); overflow: hidden; }
   .bubble-usage-fill { height: 100%; border-radius: 3px; background: rgba(174, 34, 49, 0.9); }
   .bubble-usage-pct { flex: none; font-size: 0.8em; font-variant-numeric: tabular-nums; color: rgba(var(--theme-text-rgb), 0.75); }

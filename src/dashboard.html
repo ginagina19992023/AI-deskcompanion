@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' file: data: blob:; object-src 'none'; base-uri 'none'">
 <title>桌面宠物控制面板</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style>
   * { box-sizing: border-box; }
   :root {
@@ -87,11 +88,17 @@
     --theme-text-rgb: 51, 51, 51;
     --theme-assistant-bubble-rgb: 255, 255, 255;
   }
+  :root[data-theme="eva-purple"] {
+    --skin-rgb: 26, 20, 35;
+    --theme-accent-rgb: 165, 62, 190;
+    --theme-text-rgb: 230, 220, 245;
+    --theme-assistant-bubble-rgb: 255, 255, 255;
+  }
   #main, #sidebar { zoom: var(--ui-scale); }
   html, body {
     margin: 0;
     height: 100%;
-    font-family: "Microsoft YaHei", sans-serif;
+    font-family: "Inter", "Microsoft YaHei", -apple-system, sans-serif;
     background: transparent;
     color: rgba(var(--theme-text-rgb), 0.92);
   }
@@ -138,7 +145,19 @@
     padding: 0 18px 14px;
     border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.15);
   }
-  #navList { list-style: none; margin: 10px 0 0; padding: 0; flex: 1 1 auto; }
+  #sidebarLangBadge {
+    margin: 10px 18px 0;
+    padding: 3px 9px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--theme-accent, #b22c38);
+    background: rgba(var(--theme-accent-rgb), 0.12);
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
+    border-radius: 5px;
+    width: fit-content;
+  }
+  #navList { list-style: none; margin: 10px 0 0; padding: 0; flex: 1 1 auto; overflow-y: auto; min-height: 0; }
   .nav-group-label {
     font-size: 10.5px;
     font-weight: 700;
@@ -315,6 +334,15 @@
   .usage-bar-fill.ok { background: rgba(74, 140, 92, 0.85); }
   .usage-bar-fill.warn { background: rgba(196, 138, 46, 0.85); }
   .usage-bar-fill.hot { background: rgba(196, 42, 42, 0.85); }
+  /* Tier shading layered on top of the ok/warn/hot danger colour above --
+     context (this session, right now) reads darkest/most saturated, the
+     5-hour window medium, the weekly window lightest, so the three bars
+     visually rank by "how immediate is this" at a glance without needing
+     to read the labels. brightness() keeps each tier's underlying
+     green/orange/red meaning intact, just lightened/darkened. */
+  .usage-bar-fill.tier-context { filter: brightness(0.82) saturate(1.15); }
+  .usage-bar-fill.tier-fivehour { filter: brightness(1.05); }
+  .usage-bar-fill.tier-week { filter: brightness(1.35) saturate(0.75); }
   .gallery-item { cursor: pointer; }
   .gallery-item img { width: 100%; height: 130px; object-fit: cover; border-radius: 8px; display: block; background: rgba(var(--theme-accent-rgb), 0.06); }
   .gallery-item-caption { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.75); margin-top: 4px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -502,12 +530,14 @@
 <div id="bgLayer"></div>
 <div id="sidebar">
   <h1>桌面宠物控制面板</h1>
+  <div id="sidebarLangBadge" title="当前界面语言">中文</div>
   <ul id="navList">
     <li><button class="nav-btn active" data-section="overview">概览</button></li>
     <li><button class="nav-btn" data-section="chat">💬 聊天</button></li>
     <li class="nav-group-label">设置</li>
     <li><button class="nav-btn" data-section="appearance">外观</button></li>
     <li><button class="nav-btn" data-section="voicechat">语音与聊天</button></li>
+    <li><button class="nav-btn" data-section="vocal">🎤 唱歌</button></li>
     <li><button class="nav-btn" data-section="models">模型</button></li>
     <li><button class="nav-btn" data-section="automation">自动化</button></li>
     <li><button class="nav-btn" data-section="toggles">互动细节</button></li>
@@ -577,8 +607,10 @@
           <option value="zh">中文</option>
           <option value="en">English</option>
         </select>
+        <button class="btn" id="uiLanguageApplyBtn" style="margin-left: 8px;">应用</button>
+        <span id="uiLanguageStatus" class="hint" style="margin:0 0 0 8px;"></span>
       </div>
-      <p class="hint" style="margin-top:0;">切换界面、对话和通知文本的语言；更改后立即生效。</p>
+      <p class="hint" style="margin-top:0;">切换界面、对话和通知文本的语言；点「应用」实际执行切换，成功显示绿色✓，失败显示红色✗（提示最多显示1分钟）。</p>
     </div>
     <div class="panel-block">
       <h3>控制面板外观</h3>
@@ -591,6 +623,7 @@
           <option value="light-pink">浅粉简约</option>
           <option value="cyber-green">黑绿赛博（荧光终端绿）</option>
           <option value="liquid-glass">苹果液晶玻璃（浅灰 + 蓝）</option>
+          <option value="eva-purple">EVA 绫波（紫罗兰 + 深紫）</option>
           <optgroup label="我的主题" id="dashThemeCustomGroup"></optgroup>
         </select>
       </div>
@@ -734,10 +767,48 @@
           <option value="sapi">Windows 自带（SAPI，零配置，音质一般）</option>
           <option value="piper">Piper（本地神经语音，音质好，需先配置模型）</option>
           <option value="edge-cloud">Edge 云端语音（音质最好，需要联网）</option>
+          <option value="mimo-cloud">MiMo 云端语音（小米，角色感强，需要联网+API Key）</option>
+        </select>
+        <button class="btn" id="voiceTtsEngineApplyBtn" style="margin-left: 8px;">应用并检测</button>
+        <span id="voiceTtsEngineStatus" class="hint" style="margin:0 0 0 8px;"></span>
+      </div>
+      <div class="field-row">
+        <button class="btn" id="voiceTtsFallbackLogBtn">查看最近降级记录</button>
+      </div>
+      <pre id="voiceTtsFallbackLogEl" class="hint" style="display:none; max-height:180px; overflow-y:auto; white-space:pre-wrap; background:rgba(0,0,0,0.04); padding:8px; border-radius:6px; margin-top:4px;"></pre>
+      <p class="hint" id="voiceTtsEngineHint" style="display: none;">选了会优先用这个引擎；失败会自动降级——Edge/MiMo 联网或调用失败退回 Piper（如果配置了），Piper 没配置模型或出错退回 SAPI，不会卡住不出声。Piper 需要先运行 tools/piper/setup-piper.ps1 下载模型。点「应用并检测」会实际测一次这个引擎（Edge/MiMo 会真的发一次请求），检测通过显示绿色「已配置」，失败显示红色叉号和具体原因。</p>
+      <p class="hint" id="voiceTtsEnginePiperWarning" style="display: none; color: #c4304a;">⚠ 还没检测到 Piper 语音模型，选它会自动退回 SAPI，先运行 tools/piper/setup-piper.ps1 下载模型</p>
+      <p class="hint" id="voiceGpuStatusHint" style="display: none;"></p>
+
+      <div class="field-row" id="voiceMimoGroup" style="display: none;">
+        <label for="voiceMimoApiKeyInput">MiMo API Key</label>
+        <input type="password" id="voiceMimoApiKeyInput" placeholder="去 mimo.mi.com 注册后粘贴到这里" style="flex:1; max-width:280px;">
+      </div>
+      <p class="hint" id="voiceMimoApiKeyHint" style="display: none;">前往 <a href="https://mimo.mi.com" target="_blank">mimo.mi.com</a> 注册账号并在「API管理」页生成 Key（限时免费，需绑定支付方式防滥用，正常调用不扣费）。没填这里，选了 MiMo 引擎也会自动跳过、直接走下一级降级。</p>
+
+      <div class="field-row" id="voiceMimoVoiceZhGroup" style="display: none;">
+        <label for="voiceMimoVoiceZhSelect">中文音色（MiMo）</label>
+        <select id="voiceMimoVoiceZhSelect" style="flex:1; max-width:280px;">
+          <option value="">加载中…</option>
         </select>
       </div>
-      <p class="hint" id="voiceTtsEngineHint" style="display: none;">选了会优先用这个引擎；失败会自动降级——Edge 联网失败退回 Piper（如果配置了），Piper 没配置模型或出错退回 SAPI，不会卡住不出声。Piper 需要先运行 tools/piper/setup-piper.ps1 下载模型。</p>
-      <p class="hint" id="voiceTtsEnginePiperWarning" style="display: none; color: #c4304a;">⚠ 还没检测到 Piper 语音模型，选它会自动退回 SAPI，先运行 tools/piper/setup-piper.ps1 下载模型</p>
+
+      <div class="field-row" id="voiceMimoStyleGroup" style="display: none;">
+        <label for="voiceMimoStyleSelect">中文语气标签（可选）</label>
+        <select id="voiceMimoStyleSelect" style="flex:1; max-width:280px;">
+          <option value="">加载中…</option>
+        </select>
+        <button class="btn" id="voicePreviewMimoZhBtn" style="margin-left: 8px;">试听</button>
+      </div>
+      <p class="hint" id="voiceMimoStyleHint" style="display: none;">语气标签会拼进合成文本前面影响音色表现（比如「磁性」「沉稳」更贴合管家人设），留空则不加修饰；只对中文文本生效。</p>
+
+      <div class="field-row" id="voiceMimoVoiceEnGroup" style="display: none;">
+        <label for="voiceMimoVoiceEnSelect">英文音色（MiMo）</label>
+        <select id="voiceMimoVoiceEnSelect" style="flex:1; max-width:280px;">
+          <option value="">加载中…</option>
+        </select>
+        <button class="btn" id="voicePreviewMimoEnBtn" style="margin-left: 8px;">Preview</button>
+      </div>
 
       <div class="field-row" id="voiceSettingsGroup5" style="display: none;">
         <label for="voiceVoiceNameSelect">发声音色（SAPI）</label>
@@ -754,7 +825,7 @@
         </select>
         <button class="btn" id="voicePreviewEnglishBtn" style="margin-left: 8px;">Preview</button>
       </div>
-      <p class="hint" id="voiceEdgeEnglishHint" style="display: none;">Edge cloud English neural voice · Click "Preview" to hear sample ("Good evening, my lord. How was your day?")</p>
+      <p class="hint" id="voiceEdgeEnglishHint" style="display: none;">Edge cloud English neural voice · Click "Preview" to hear sample ("Ah, young master — you're looking rather well this evening.")</p>
 
       <div class="field-row" id="voiceEdgeChineseGroup" style="display: none;">
         <label for="voiceEdgeChineseSelect">中文音色（Edge）</label>
@@ -763,7 +834,7 @@
         </select>
         <button class="btn" id="voicePreviewChineseBtn" style="margin-left: 8px;">试听</button>
       </div>
-      <p class="hint" id="voiceEdgeChineseHint" style="display: none;">Edge 云端中文神经语音 · 点击「试听」听样音（测试文本："晚上好，少爷。今天过得还算体面吧？"）</p>
+      <p class="hint" id="voiceEdgeChineseHint" style="display: none;">Edge 云端中文神经语音 · 点击「试听」听样音（测试文本："哦呀哦呀，少爷，今天气色看着倒是不错，是发生了什么好事吗？"）</p>
 
       <p class="hint" id="voiceVoiceNameNonSapiHint" style="display: none;">当前引擎不是 SAPI，这个音色选项不生效——Piper 的音色由所配置的模型文件决定（tools/piper/setup-piper.ps1 下载的是哪个模型就是哪个音色）</p>
 
@@ -773,8 +844,10 @@
           <option value="sapi">Windows 自带（SAPI，零配置）</option>
           <option value="whisper">本地 Whisper（更准，需先下载模型）</option>
         </select>
+        <button class="btn" id="voiceSttEngineApplyBtn" style="margin-left: 8px;">应用并检测</button>
+        <span id="voiceSttEngineStatus" class="hint" style="margin:0 0 0 8px;"></span>
       </div>
-      <p class="hint" id="voiceSttEngineHint" style="display: none;">Whisper 中文识别准确率明显优于系统自带引擎，但要先运行 tools/whisper/setup-whisper.ps1 下载模型（一次性，几百 MB），没下载就选这个会报错听不到反应</p>
+      <p class="hint" id="voiceSttEngineHint" style="display: none;">Whisper 中文识别准确率明显优于系统自带引擎，但要先运行 tools/whisper/setup-whisper.ps1 下载模型（一次性，几百 MB），没下载就选这个会报错听不到反应。点「应用并检测」会检查可执行文件和模型是否都在，不实际录音。</p>
 
       <div class="field-row" id="voiceSettingsGroup7" style="display: none;">
         <label for="voiceCpuMode">CPU 模式（先出文字再朗读）</label>
@@ -820,6 +893,64 @@
         <label for="chatModel">模型名称</label>
         <input type="text" id="chatModel" placeholder="gemma4:12b" style="flex:1; min-width:200px;">
       </div>
+    </div>
+
+    <div class="panel-block">
+      <h3>角色对话语言</h3>
+      <div class="field-row">
+        <label for="chatReplyLanguageSelect">回复语言</label>
+        <select id="chatReplyLanguageSelect" style="flex:1; max-width:240px;">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <p class="hint" style="margin-top:0;">跟界面语言是两回事——这个只决定角色聊天回复用哪种语言，选了 English 之后角色会用英文回复，语音也会自动跟着用对应的英文音色（不用额外设置）。</p>
+    </div>
+
+    <div class="panel-block">
+      <h3>角色口头禅</h3>
+      <div class="field-row" style="align-items: flex-start;">
+        <label for="chatCatchphrasesInput" style="padding-top:6px;">口头禅（每行一句）</label>
+        <textarea id="chatCatchphrasesInput" rows="5" placeholder="例如：&#10;哦呀哦呀&#10;是，少爷&#10;区区小事，何足挂齿" style="flex:1; min-width:200px; font-family:inherit; resize:vertical;"></textarea>
+      </div>
+      <div class="field-row">
+        <button class="btn" id="chatCatchphrasesUpdateBtn">更新</button>
+        <span id="chatCatchphrasesStatus" class="hint" style="margin:0 0 0 8px;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">这些句子会作为提示词的一部分交给聊天模型，让角色在合适的语境里自然穿插使用，不是每条回复都硬塞一句。点「更新」立即生效，下一条回复就会用上新设置，不用重启。</p>
+    </div>
+  </section>
+
+  <section class="section" id="section-vocal">
+    <h2>🎤 唱歌</h2>
+    <p class="subtitle">用 MiMo 云端语音的"唱歌模式"合成——跟平时说话走同一个 API，只是歌词前面自动加了唱歌标签，不需要额外配置，需要先在「语音与聊天」页填好 MiMo API Key。</p>
+    <div class="panel-block">
+      <h3>歌词</h3>
+      <div class="field-row" style="align-items: flex-start;">
+        <label for="vocalLyricsInput" style="padding-top:6px;">歌词文本</label>
+        <textarea id="vocalLyricsInput" rows="4" placeholder="输入想让角色唱的歌词（中文/英文均可，中文效果通常更好）" style="flex:1; min-width:200px; font-family:inherit; resize:vertical;"></textarea>
+      </div>
+      <div class="field-row">
+        <label for="vocalSampleSelect">试用样例歌词</label>
+        <select id="vocalSampleSelect" style="flex:1; max-width:320px;">
+          <option value="">（选一段快速试听，或者自己填词）</option>
+          <option value="月亮代表我的心，你问我爱你有多深">月亮代表我的心（中文）</option>
+          <option value="童年的操场，如今空荡荡，只剩下风吹过的声响">童年的操场（中文，原创测试词）</option>
+          <option value="Twinkle twinkle little star, how I wonder what you are">Twinkle Twinkle Little Star（英文）</option>
+          <option value="Somewhere over the rainbow, way up high">Over the Rainbow 开头（英文）</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="vocalVoiceSelect">演唱音色</label>
+        <select id="vocalVoiceSelect" style="flex:1; max-width:280px;">
+          <option value="">跟随语音设置里配置的默认音色</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <button class="btn" id="vocalSingBtn">🎵 唱一下</button>
+        <span id="vocalStatus" class="hint" style="margin:0 0 0 8px;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">生成的是完整一段人声演唱（会自带旋律和节奏，不是照着歌词念），时长通常比同样文字说话要长不少；不带伴奏，纯人声。免费额度和「语音与聊天」页共用同一个 MiMo Key。</p>
     </div>
   </section>
 
