@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('dash', {
   getData: () => ipcRenderer.invoke('dashboard:get-data'),
+  getEdgeVoices: () => ipcRenderer.invoke('dashboard:get-edge-voices'),
   getModels: () => ipcRenderer.invoke('dashboard:models'),
   getReport: (kind) => ipcRenderer.invoke('dashboard:report', kind),
   getReports: () => ipcRenderer.invoke('dashboard:get-reports'),

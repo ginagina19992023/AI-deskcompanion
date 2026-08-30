@@ -1168,6 +1168,18 @@ ipcMain.on('pet:settings-set', (_e, { field, value }) => {
         voiceSttWatcher = null;
       }
       break;
+    case 'voiceEdgeEnglishName':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.edge = cfg.voice.edge ?? {};
+      cfg.voice.edge.voiceNameEn = value;
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
+      break;
+    case 'voiceEdgeChineseName':
+      cfg.voice = cfg.voice ?? {};
+      cfg.voice.edge = cfg.voice.edge ?? {};
+      cfg.voice.edge.voiceNameZh = value;
+      if (alive()) win.webContents.send('pet:voice-config', cfg.voice);
+      break;
     case 'cameraSenseIntervalMs':
       cfg.cameraSense = cfg.cameraSense ?? {};
       cfg.cameraSense.intervalMs = Math.max(30000, Number(value) || 120000);
@@ -2313,6 +2325,8 @@ function dashboardSnapshot() {
       voiceVoiceName: cfg.voice?.voiceName ?? '',
       voiceSttEngine: cfg.voice?.sttEngine ?? 'sapi',
       voiceTtsEngine: cfg.voice?.ttsEngine ?? 'sapi',
+      voiceEdgeEnglishName: cfg.voice?.edge?.voiceNameEn ?? '',
+      voiceEdgeChineseName: cfg.voice?.edge?.voiceNameZh ?? '',
       voiceTtsEngineAvailable: {
         piper: !!cfg.voice?.piper?.modelPath,
       },
@@ -2362,6 +2376,21 @@ function dashboardSnapshot() {
 }
 
 ipcMain.handle('dashboard:get-data', () => dashboardSnapshot());
+ipcMain.handle('dashboard:get-edge-voices', () => ({
+  english: [
+    { name: 'en-GB-RyanNeural', label: 'Ryan (British, Professional)' },
+    { name: 'en-GB-ThomasNeural', label: 'Thomas (British, Reliable)' },
+    { name: 'en-US-AndrewMultilingualNeural', label: 'Andrew (US, Warm & Confident)' },
+    { name: 'en-US-BrianMultilingualNeural', label: 'Brian (US, Approachable)' },
+    { name: 'en-AU-WilliamMultilingualNeural', label: 'William (Australian, Friendly)' },
+  ],
+  chinese: [
+    { name: 'zh-CN-YunjianNeural', label: 'Yunjian (Passion, Sports)' },
+    { name: 'zh-CN-YunxiNeural', label: 'Yunxi (Lively, Novel)' },
+    { name: 'zh-CN-YunxiaNeural', label: 'Yunxia (Cute, Cartoon)' },
+    { name: 'zh-CN-YunyangNeural', label: 'Yunyang (Professional, News)' },
+  ],
+}));
 ipcMain.handle('dashboard:chat-get-history', () => ({ messages: curConv().messages }));
 ipcMain.handle('dashboard:get-memory', () => dashboardMemoryPayload());
 ipcMain.handle('dashboard:delete-memory', (_e, id) => {

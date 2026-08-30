@@ -679,6 +679,12 @@ const voiceVoiceNameSelectEl = document.getElementById('voiceVoiceNameSelect');
 const voiceVoiceNameGroupEl = document.getElementById('voiceSettingsGroup5');
 const voiceVoiceNameHintEl = document.getElementById('voiceVoiceNameHint');
 const voiceVoiceNameNonSapiHintEl = document.getElementById('voiceVoiceNameNonSapiHint');
+const voiceEdgeEnglishSelectEl = document.getElementById('voiceEdgeEnglishSelect');
+const voiceEdgeEnglishGroupEl = document.getElementById('voiceEdgeEnglishGroup');
+const voiceEdgeEnglishHintEl = document.getElementById('voiceEdgeEnglishHint');
+const voiceEdgeChineseSelectEl = document.getElementById('voiceEdgeChineseSelect');
+const voiceEdgeChineseGroupEl = document.getElementById('voiceEdgeChineseGroup');
+const voiceEdgeChineseHintEl = document.getElementById('voiceEdgeChineseHint');
 const voiceSttEngineSelectEl = document.getElementById('voiceSttEngineSelect');
 const voiceSttEngineHintEl = document.getElementById('voiceSttEngineHint');
 const voiceTtsEngineSelectEl = document.getElementById('voiceTtsEngineSelect');
@@ -701,16 +707,24 @@ const voiceSettingsGroups = [
 
 // The "发声音色" row only means anything for the sapi engine -- piper's
 // voice comes from whichever model file is configured, edge-cloud's from
-// voice.edge.voiceName, neither of which this dropdown touches. Showing it
+// voice.edge.voiceName*, neither of which this dropdown touches. Showing it
 // regardless of engine is exactly what produced the "I picked an engine
 // AND a voice, neither seems to matter" confusion, so its visibility
 // tracks the engine selection instead of just the blanket voiceEnabled
 // toggle the rest of voiceSettingsGroups uses.
 function updateVoiceNameGroupVisibility() {
-  const show = voiceEnabledEl.checked && voiceTtsEngineSelectEl.value === 'sapi';
-  voiceVoiceNameGroupEl.style.display = show ? 'block' : 'none';
-  voiceVoiceNameHintEl.style.display = show ? 'block' : 'none';
-  voiceVoiceNameNonSapiHintEl.style.display = voiceEnabledEl.checked && !show ? 'block' : 'none';
+  const engine = voiceTtsEngineSelectEl.value;
+  const enabled = voiceEnabledEl.checked;
+  const showSapi = enabled && engine === 'sapi';
+  const showEdge = enabled && engine === 'edge-cloud';
+
+  voiceVoiceNameGroupEl.style.display = showSapi ? 'block' : 'none';
+  voiceVoiceNameHintEl.style.display = showSapi ? 'block' : 'none';
+  voiceEdgeEnglishGroupEl.style.display = showEdge ? 'block' : 'none';
+  voiceEdgeEnglishHintEl.style.display = showEdge ? 'block' : 'none';
+  voiceEdgeChineseGroupEl.style.display = showEdge ? 'block' : 'none';
+  voiceEdgeChineseHintEl.style.display = showEdge ? 'block' : 'none';
+  voiceVoiceNameNonSapiHintEl.style.display = enabled && !showSapi && engine !== 'edge-cloud' ? 'block' : 'none';
 }
 
 voiceEnabledEl.addEventListener('change', (e) => {
@@ -771,6 +785,46 @@ populateVoiceNameSelect();
 
 voiceVoiceNameSelectEl.addEventListener('change', (e) => {
   window.dash.setSetting('voiceVoiceName', e.target.value);
+});
+
+// Load Edge voices on startup
+(async () => {
+  const voices = await window.dash.getEdgeVoices();
+  if (!voices) return;
+
+  // Populate English voices
+  voiceEdgeEnglishSelectEl.replaceChildren();
+  const enDefault = document.createElement('option');
+  enDefault.value = '';
+  enDefault.textContent = '（默认）';
+  voiceEdgeEnglishSelectEl.appendChild(enDefault);
+  for (const voice of voices.english) {
+    const opt = document.createElement('option');
+    opt.value = voice.name;
+    opt.textContent = voice.label;
+    voiceEdgeEnglishSelectEl.appendChild(opt);
+  }
+
+  // Populate Chinese voices
+  voiceEdgeChineseSelectEl.replaceChildren();
+  const zhDefault = document.createElement('option');
+  zhDefault.value = '';
+  zhDefault.textContent = '（默认）';
+  voiceEdgeChineseSelectEl.appendChild(zhDefault);
+  for (const voice of voices.chinese) {
+    const opt = document.createElement('option');
+    opt.value = voice.name;
+    opt.textContent = voice.label;
+    voiceEdgeChineseSelectEl.appendChild(opt);
+  }
+})();
+
+voiceEdgeEnglishSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceEdgeEnglishName', e.target.value || '');
+});
+
+voiceEdgeChineseSelectEl.addEventListener('change', (e) => {
+  window.dash.setSetting('voiceEdgeChineseName', e.target.value || '');
 });
 
 voiceSttEngineSelectEl.addEventListener('change', (e) => {
@@ -913,6 +967,8 @@ function renderSettings(settings) {
   voiceVoiceNameSelectEl.value = pendingVoiceSelection;
   voiceSttEngineSelectEl.value = settings.voiceSttEngine ?? 'sapi';
   voiceTtsEngineSelectEl.value = settings.voiceTtsEngine ?? 'sapi';
+  voiceEdgeEnglishSelectEl.value = settings.voiceEdgeEnglishName ?? '';
+  voiceEdgeChineseSelectEl.value = settings.voiceEdgeChineseName ?? '';
   piperModelAvailable = !!settings.voiceTtsEngineAvailable?.piper;
   voiceCpuModeEl.checked = !!settings.voiceCpuMode;
   for (const group of voiceSettingsGroups) {

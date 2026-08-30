@@ -729,13 +729,30 @@
       <p class="hint" id="voiceTtsEnginePiperWarning" style="display: none; color: #c4304a;">⚠ 还没检测到 Piper 语音模型，选它会自动退回 SAPI，先运行 tools/piper/setup-piper.ps1 下载模型</p>
 
       <div class="field-row" id="voiceSettingsGroup5" style="display: none;">
-        <label for="voiceVoiceNameSelect">发声音色</label>
+        <label for="voiceVoiceNameSelect">发声音色（SAPI）</label>
         <select id="voiceVoiceNameSelect" style="flex:1; max-width:280px;">
           <option value="">（系统默认）</option>
         </select>
       </div>
       <p class="hint" id="voiceVoiceNameHint" style="display: none;">列表来自本机 Windows 系统自带的语音包（仅对上面的 SAPI 引擎生效）；系统默认经常是女声，想要男声从这里选一个名字含"男"或 Male 的试听效果</p>
-      <p class="hint" id="voiceVoiceNameNonSapiHint" style="display: none;">当前引擎不是 SAPI，这个音色选项不生效——Piper 的音色由所配置的模型文件决定（tools/piper/setup-piper.ps1 下载的是哪个模型就是哪个音色），Edge 云端的音色需要在 config.json 的 voice.edge.voiceName 里手动指定（默认 zh-CN-YunxiNeural 男声）</p>
+
+      <div class="field-row" id="voiceEdgeEnglishGroup" style="display: none;">
+        <label for="voiceEdgeEnglishSelect">英文音色（Edge）</label>
+        <select id="voiceEdgeEnglishSelect" style="flex:1; max-width:280px;">
+          <option value="">加载中…</option>
+        </select>
+      </div>
+      <p class="hint" id="voiceEdgeEnglishHint" style="display: none;">Edge 云端英文神经语音</p>
+
+      <div class="field-row" id="voiceEdgeChineseGroup" style="display: none;">
+        <label for="voiceEdgeChineseSelect">中文音色（Edge）</label>
+        <select id="voiceEdgeChineseSelect" style="flex:1; max-width:280px;">
+          <option value="">加载中…</option>
+        </select>
+      </div>
+      <p class="hint" id="voiceEdgeChineseHint" style="display: none;">Edge 云端中文神经语音</p>
+
+      <p class="hint" id="voiceVoiceNameNonSapiHint" style="display: none;">当前引擎不是 SAPI，这个音色选项不生效——Piper 的音色由所配置的模型文件决定（tools/piper/setup-piper.ps1 下载的是哪个模型就是哪个音色）</p>
 
       <div class="field-row" id="voiceSettingsGroup6" style="display: none;">
         <label for="voiceSttEngineSelect">语音识别引擎</label>
