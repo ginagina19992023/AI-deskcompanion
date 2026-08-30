@@ -8,6 +8,8 @@
   "dockToTaskbar": true,
   "debug": false,
   "disableHardwareAcceleration": true,
+  "_uiLanguage": "界面语言：'zh' 表示中文，'en' 表示英文。影响仪表板和聊天气泡的所有 UI 文本。",
+  "uiLanguage": "zh",
   "_scaleSteps": "右键菜单「改变大小」的可选档位。",
   "scaleSteps": [
     0.6,

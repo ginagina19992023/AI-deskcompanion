@@ -350,6 +350,25 @@ dashModuleAlphaEl.addEventListener('change', () => window.dash.setSetting('modul
 // block (it's what :root's own defaults already are), so it's expressed
 // as *removing* the attribute rather than a "classic" preset block that
 // would just duplicate those same default values.
+
+// Language setting
+const uiLanguageSelectEl = document.getElementById('uiLanguageSelect');
+if (uiLanguageSelectEl) {
+  uiLanguageSelectEl.addEventListener('change', () => {
+    const value = uiLanguageSelectEl.value;
+    window.dash.setSetting('uiLanguage', value);
+    // Note: Full UI translation would require reloading. For now, this
+    // saves the preference for next app restart.
+  });
+
+  // Initialize from settings
+  window.dash.getData().then(data => {
+    if (data.settings?.uiLanguage) {
+      uiLanguageSelectEl.value = data.settings.uiLanguage;
+    }
+  }).catch(err => console.error('Failed to load UI language setting:', err));
+}
+
 const dashThemePresetEl = document.getElementById('dashThemePreset');
 const dashThemeCustomGroupEl = document.getElementById('dashThemeCustomGroup');
 const dashThemeCustomNameEl = document.getElementById('dashThemeCustomName');

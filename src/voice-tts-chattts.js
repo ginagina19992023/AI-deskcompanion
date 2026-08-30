@@ -11,22 +11,20 @@ import { randomUUID } from 'node:crypto';
 // Python script to synthesize with ChatTTS and output WAV file
 const CHATTTS_SCRIPT = `
 import sys
-import ChatTTS
-import torch
+from ChatTTS import Chat
 import torchaudio
 
 text = sys.argv[1]
 out_path = sys.argv[2]
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-chat = ChatTTS.ChatTTS()
-chat.load_models(device=device)
+chat = Chat()
+# download_models() downloads from local cache if exists, else from huggingface
+chat.download_models()
 
-# Synthesize and save to WAV
-wavs = chat.infer([text], use_decoder=True)
-if wavs and len(wavs) > 0:
-    wav = wavs[0]
-    torchaudio.save(out_path, wav.unsqueeze(0), 24000)
+# Synthesize to WAV (infer returns tensor directly in v0.2.5)
+wavs = chat.infer(text, use_decoder=True)
+if wavs is not None:
+    torchaudio.save(out_path, wavs.unsqueeze(0), 24000)
     print("OK")
 else:
     print("FAILED")

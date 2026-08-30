@@ -14,7 +14,7 @@ import { createVoiceSttWatcher } from './voice-stt.js';
 import { createWhisperSttWatcher } from './voice-stt-whisper.js';
 import { synthesizePiper } from './voice-tts-piper.js';
 import { synthesizeEdge } from './voice-tts-edge.js';
-import { synthesizeChattts } from './voice-tts-chattts.js';
+// import { synthesizeChattts } from './voice-tts-chattts.js'; // Temporarily disabled
 import { synthesizeSapi } from './voice-tts-sapi.js';
 import { streamChatReply, EMOTION_TAG_INSTRUCTION } from './chat.js';
 import { setOllamaLockDebug, withOllamaLock } from './ollama-lock.js';
@@ -620,14 +620,15 @@ async function synthesizeSpeechFile(text, voiceCfg) {
   }
   // ChatTTS: open-source Chinese TTS, good alternative to Piper for Mandarin
   // (Chinese-optimized, usually better quality than Piper for CJK text).
-  const isChinese = /[一-鿿]/.test(text);
-  if (isChinese) {
-    try {
-      return await synthesizeChattts(text, { pythonPath: voiceCfg.pythonPath || 'python' });
-    } catch (err) {
-      if (cfg.debug) console.error('[tts] chattts failed, falling back:', err.message);
-    }
-  }
+  // Temporarily disabled: model download issues on Windows. Fallback to SAPI instead.
+  // const isChinese = /[一-鿿]/.test(text);
+  // if (isChinese) {
+  //   try {
+  //     return await synthesizeChattts(text, { pythonPath: voiceCfg.pythonPath || 'python' });
+  //   } catch (err) {
+  //     if (cfg.debug) console.error('[tts] chattts failed, falling back:', err.message);
+  //   }
+  // }
   try {
     return await synthesizeSapi(text, {
       voiceName: voiceCfg.voiceName,
@@ -2303,6 +2304,7 @@ function dashboardSnapshot() {
     aiStatus: aiStatusSnapshot,
     claudeStatus: aiStatusSnapshot,
     settings: {
+      uiLanguage: cfg.uiLanguage ?? 'zh',
       screenTipsModel: cfg.screenTips?.model ?? '',
       screenTipsProvider: cfg.screenTips?.provider ?? 'ollama',
       screenTipsBaseUrl: cfg.screenTips?.baseUrl ?? '',
