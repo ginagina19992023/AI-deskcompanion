@@ -1301,7 +1301,7 @@ ipcMain.handle('dashboard:replay-vocal-history-entry', async (_e, { id } = {}) =
 
 // Full-pipeline one-click: transcribe → separate → convert → mix, all at once.
 // Takes audioPath + model params, orchestrates the full ①②③④ flow, returns final mix path.
-ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPath, indexPath, pitchShift, indexRate }) => {
+ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPath, indexPath, pitchShift, indexRate, enhanceStrength }) => {
   if (!audioPath || !existsSync(audioPath)) return { error: '音频文件不存在' };
   if (!modelPath || !existsSync(modelPath)) return { error: '模型文件不存在' };
 
@@ -1342,12 +1342,51 @@ ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPat
     const conv = await runVoiceConversion(sep.vocals, modelPath, indexPath, pitchShift, indexRate, sep.instrumental);
     if (conv.error) return conv;
 
+    // runVoiceConversion resolve 的是 voice-convert.py 的原始 JSON，键名是
+    // output；outputPath 只存在于写进历史文件的那个对象里。之前这里读
+    // conv.outputPath 恒为 undefined，导致 || 兜底成 sep.vocals，整条
+    // 一键流程混的都是没换过声的原人声。
+    const convertedVocals = conv.output || sep.vocals;
+    const songName = getSongName(audioPath);
+
+    // 可选的清晰度增强：拿换声结果再过一遍 enhance-vocal.py，用增强版去混音。
+    // 失败就退回未增强的人声继续走完流程——一次可选的美化不该让整首歌白跑。
+    let vocalsForMix = convertedVocals;
+    if (enhanceStrength > 0 && convertedVocals !== sep.vocals) {
+      const enhancedPath = join(root, 'data', 'vocal-splits', `enhanced-${songName}-${Date.now()}.wav`);
+      const enhanced = await new Promise((resolveEnh) => {
+        const proc = spawn('python', [
+          join(root, 'tools', 'enhance-vocal.py'),
+          convertedVocals,
+          enhancedPath,
+          String(enhanceStrength),
+        ], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
+        let out = '';
+        proc.stdout.on('data', (d) => { out += d.toString(); });
+        proc.on('close', (code) => {
+          if (code !== 0) return resolveEnh(null);
+          try { resolveEnh(JSON.parse(out.trim()).output || null); }
+          catch { resolveEnh(null); }
+        });
+        proc.on('error', () => resolveEnh(null));
+      });
+      if (enhanced) {
+        appendVocalHistory({
+          type: 'enhance',
+          songName,
+          sourcePath: convertedVocals,
+          outputPath: enhanced,
+          strength: Number(enhanceStrength),
+        });
+        vocalsForMix = enhanced;
+      }
+    }
+
     // ④ Mix
     const mix = await new Promise((resolve) => {
       const scriptPath = join(root, 'tools', 'mix-tracks.py');
-      const songName = getSongName(audioPath);
       const outputPath = join(root, 'data', 'vocal-splits', `complete-${songName}-${Date.now()}.wav`);
-      const proc = spawn('python', [scriptPath, conv.outputPath || sep.vocals, sep.instrumental, outputPath, '1', '1'], {
+      const proc = spawn('python', [scriptPath, vocalsForMix, sep.instrumental, outputPath, '1', '1'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 60000,
       });
@@ -1365,7 +1404,7 @@ ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPat
           const result = JSON.parse(stdout.trim());
           if (result.output) {
             result.outputUrl = pathToFileURL(result.output).href;
-            appendVocalHistory({ type: 'mix', songName, vocalsPath: conv.outputPath || sep.vocals, instrumentalPath: sep.instrumental, outputPath: result.output });
+            appendVocalHistory({ type: 'mix', songName, vocalsPath: vocalsForMix, instrumentalPath: sep.instrumental, outputPath: result.output });
             resolve(result);
           } else resolve({ error: '混音输出错误' });
         } catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
