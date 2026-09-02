@@ -422,6 +422,15 @@ const voiceConvertResultsEl = document.getElementById('voiceConvertResults');
 const voiceConvertedAudioEl = document.getElementById('voiceConvertedAudio');
 const voiceGenCompleteBtnEl = document.getElementById('voiceGenCompleteBtn');
 const voiceCompleteAudioSectionEl = document.getElementById('voiceCompleteAudioSection');
+const voiceFullPipelinePanelEl = document.getElementById('voiceFullPipelinePanel');
+const voiceFullPipelineSongSelectEl = document.getElementById('voiceFullPipelineSongSelect');
+const voiceFullPipelineModelEl = document.getElementById('voiceFullPipelineModel');
+const voiceFullPipelinePickModelEl = document.getElementById('voiceFullPipelinePickModel');
+const voiceFullPipelinePitchEl = document.getElementById('voiceFullPipelinePitch');
+const voiceFullPipelineIndexRateEl = document.getElementById('voiceFullPipelineIndexRate');
+const voiceFullPipelineIndexRateValueEl = document.getElementById('voiceFullPipelineIndexRateValue');
+const voiceFullPipelineBtnEl = document.getElementById('voiceFullPipelineBtn');
+const voiceFullPipelineStatusEl = document.getElementById('voiceFullPipelineStatus');
 const voiceCompleteAudioEl = document.getElementById('voiceCompleteAudio');
 const voiceEnhanceBtnEl = document.getElementById('voiceEnhanceBtn');
 const voiceEnhanceStrengthEl = document.getElementById('voiceEnhanceStrength');
@@ -1032,12 +1041,15 @@ function renderVocalHistoryFilterRow() {
 }
 
 function renderVocalHistoryList() {
-  if (!vocalHistoryListEl) return;
+  const historyContainer = document.getElementById('vocalHistoryBySong');
+  if (!historyContainer) return;
   renderVocalHistoryFilterRow();
+
   const filtered = vocalHistoryFilter === 'all'
     ? vocalHistoryCache
     : vocalHistoryCache.filter((h) => h.type === vocalHistoryFilter);
-  vocalHistoryListEl.replaceChildren();
+
+  historyContainer.replaceChildren();
   if (!filtered.length) {
     const empty = document.createElement('p');
     empty.className = 'hint';
@@ -1045,10 +1057,43 @@ function renderVocalHistoryList() {
     empty.textContent = vocalHistoryCache.length
       ? '这个分类下还没有记录'
       : '还没有生成记录——分离一次伴奏，或者换一次声，就会出现在这里';
-    vocalHistoryListEl.appendChild(empty);
+    historyContainer.appendChild(empty);
     return;
   }
-  for (const entry of filtered) vocalHistoryListEl.appendChild(vocalHistoryRow(entry));
+
+  // Group by songName
+  const bySong = {};
+  for (const entry of filtered) {
+    const songName = entry.songName || entry.sourceName || '未知歌曲';
+    if (!bySong[songName]) bySong[songName] = [];
+    bySong[songName].push(entry);
+  }
+
+  // Render by song
+  for (const [songName, entries] of Object.entries(bySong).sort()) {
+    const songGroup = document.createElement('div');
+    songGroup.style.marginBottom = '12px';
+    songGroup.style.padding = '10px';
+    songGroup.style.background = 'rgba(var(--theme-accent-rgb), 0.04)';
+    songGroup.style.borderRadius = '6px';
+
+    const songTitle = document.createElement('div');
+    songTitle.style.fontWeight = '600';
+    songTitle.style.marginBottom = '8px';
+    songTitle.style.fontSize = '13px';
+    songTitle.style.color = 'rgba(var(--theme-text-rgb), 0.9)';
+    songTitle.textContent = `📂 ${songName} (${entries.length})`;
+    songGroup.appendChild(songTitle);
+
+    const itemsContainer = document.createElement('div');
+    itemsContainer.style.display = 'grid';
+    itemsContainer.style.gridTemplateColumns = 'repeat(auto-fill, minmax(240px, 1fr))';
+    itemsContainer.style.gap = '8px';
+    for (const entry of entries) itemsContainer.appendChild(vocalHistoryRow(entry));
+    songGroup.appendChild(itemsContainer);
+
+    historyContainer.appendChild(songGroup);
+  }
 }
 
 async function loadVocalHistory() {
@@ -5492,6 +5537,66 @@ backupImportBtnEl?.addEventListener('click', async () => {
     backupImportBtnEl.disabled = false;
   }
 });
+
+// --- vocal pipeline: one-click full automation ──────────────────────────
+const vocalFullPipelineHandler = () => {
+  if (!voiceFullPipelineBtnEl) return;
+
+  // Update index-rate value label
+  if (voiceFullPipelineIndexRateEl) {
+    voiceFullPipelineIndexRateEl.addEventListener('input', () => {
+      voiceFullPipelineIndexRateValueEl.textContent = Number(voiceFullPipelineIndexRateEl.value).toFixed(2);
+    });
+  }
+
+  // Pick model button
+  voiceFullPipelinePickModelEl?.addEventListener('click', async () => {
+    const { ok, modelPath, indexPath } = await window.dash.pickVoiceModel();
+    if (ok && modelPath) {
+      voiceFullPipelineModelEl.value = modelPath;
+      selectedVoiceModelPath = modelPath;
+      selectedVoiceIndexPath = indexPath;
+    }
+  });
+
+  // One-click button
+  voiceFullPipelineBtnEl.addEventListener('click', async () => {
+    const songPath = voiceFullPipelineSongSelectEl.value;
+    const modelPath = selectedVoiceModelPath;
+    if (!songPath) {
+      alert('请先选择一首歌');
+      return;
+    }
+    if (!modelPath) {
+      alert('请先选择 RVC 模型');
+      return;
+    }
+
+    voiceFullPipelineBtnEl.disabled = true;
+    voiceFullPipelineStatusEl.textContent = '生成中（①②③④）…';
+    try {
+      const result = await window.dash.fullPipelineVocal({
+        audioPath: songPath,
+        modelPath,
+        indexPath: selectedVoiceIndexPath || '',
+        pitchShift: Number(voiceFullPipelinePitchEl.value) || 0,
+        indexRate: Number(voiceFullPipelineIndexRateEl.value) || 0.75,
+      });
+
+      if (result.error) {
+        voiceFullPipelineStatusEl.textContent = `✗ ${result.error}`;
+      } else {
+        voiceFullPipelineStatusEl.textContent = `✓ 成品已生成！`;
+        loadVocalHistory();
+      }
+    } catch (err) {
+      voiceFullPipelineStatusEl.textContent = `✗ ${err.message}`;
+    } finally {
+      voiceFullPipelineBtnEl.disabled = false;
+    }
+  });
+};
+vocalFullPipelineHandler();
 
 // --- initial load --------------------------------------------------------
 (async () => {

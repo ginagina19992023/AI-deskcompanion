@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld('dash', {
   listTestSongs: () => ipcRenderer.invoke('dashboard:list-test-songs'),
   exportBackup: (options) => ipcRenderer.invoke('dashboard:export-backup', options),
   importBackup: () => ipcRenderer.invoke('dashboard:import-backup'),
+  fullPipelineVocal: (params) => ipcRenderer.invoke('dashboard:full-pipeline-vocal', params),
   // Electron 32+ dropped File.path for security; webUtils is the replacement
   // way to resolve a <input type=file> File object back to an absolute path.
   getPathForFile: (file) => webUtils.getPathForFile(file),

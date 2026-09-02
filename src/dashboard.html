@@ -1034,7 +1034,47 @@
     </div>
 
     <div style="margin: 22px 0 2px; font-size:13px; font-weight:700; opacity:0.85;">🎧 翻唱 · 把一首歌换成别的音色来唱</div>
-    <p class="hint" style="margin:0 0 8px;">下面①②③连起来是完整流程，到③完成后点「一键生成」就能自动混音出完整翻唱（新人声+原伴奏）。</p>
+
+    <div class="panel-block" id="voiceFullPipelinePanel" style="background:rgba(var(--theme-accent-rgb), 0.08); border:1px solid rgba(var(--theme-accent-rgb), 0.2);">
+      <h3 style="margin-top:0;">⚡ 一键完整翻唱配置</h3>
+      <p class="hint" style="margin-bottom:10px;">选好参数后，点下面的「✨ 一键完整翻唱」会自动执行①识歌 ②拆伴奏 ③换声 ④混音，一步到位生成成品。</p>
+
+      <div class="field-row">
+        <label for="voiceFullPipelineSongSelect">选歌</label>
+        <select id="voiceFullPipelineSongSelect" style="flex:1; max-width:320px;">
+          <option value="">（选一首内置测试曲或自己上传的文件）</option>
+        </select>
+      </div>
+
+      <div class="field-row" style="align-items:center; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;">
+          <label for="voiceFullPipelineModel" style="display:block; margin-bottom:4px; font-size:12px;">RVC 模型</label>
+          <input type="text" id="voiceFullPipelineModel" readonly placeholder="（未选择）" style="width:100%; box-sizing:border-box;">
+        </div>
+        <button class="btn" id="voiceFullPipelinePickModel" style="align-self:flex-end; margin-bottom:0;">选择</button>
+      </div>
+
+      <div class="field-row" style="gap:16px; flex-wrap:wrap;">
+        <div style="min-width:150px;">
+          <label for="voiceFullPipelinePitch" style="display:block; margin-bottom:4px; font-size:12px;">变调（半音）</label>
+          <input type="number" id="voiceFullPipelinePitch" value="0" step="1" style="width:100%; box-sizing:border-box;">
+        </div>
+        <div style="min-width:150px;">
+          <label for="voiceFullPipelineIndexRate" style="display:block; margin-bottom:4px; font-size:12px;">音色相似度</label>
+          <input type="range" id="voiceFullPipelineIndexRate" min="0" max="1" step="0.05" value="0.75" style="width:100%;">
+          <span id="voiceFullPipelineIndexRateValue" style="font-size:11px; opacity:0.7;">0.75</span>
+        </div>
+      </div>
+
+      <div style="margin-top:12px; padding-top:12px; border-top:1px solid rgba(var(--theme-accent-rgb), 0.1);">
+        <button class="btn primary" id="voiceFullPipelineBtn" style="width:100%; font-weight:600; font-size:14px; padding:10px; box-shadow: 0 3px 12px rgba(var(--theme-accent-rgb), 0.4);">
+          ✨ 一键完整翻唱
+        </button>
+        <span id="voiceFullPipelineStatus" class="hint" style="display:block; margin-top:8px; text-align:center;"></span>
+      </div>
+    </div>
+
+    <p class="hint" style="margin:12px 0 8px;">或者分步操作：选择歌曲后，依次点下面的①②③来调整参数、听试听版，每一步都能单独生成。</p>
 
     <div class="vocal-workflow" id="vocalWorkflow">
       <div class="vocal-workflow-step" id="vocalWorkflowStep1">
@@ -1190,9 +1230,9 @@
 
     <div class="panel-block">
       <h3>🎵 歌曲库</h3>
-      <p class="hint" style="margin-top:0;">识别过的音频分离结果、换过声的人声轨都会留在这里，随时能重新播放，换声记录还能一键用同样的设置重新生成一次。</p>
+      <p class="hint" style="margin-top:0;">按歌曲分组管理所有生成的素材——分离轨、各个音色版本、混音成品、增强版本。点歌曲名展开看详情，选"用这条换声"可复用同一份分离素材配合不同参数重新生成。</p>
       <div id="vocalHistoryFilterRow" style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;"></div>
-      <div class="card-grid" id="vocalHistoryList"></div>
+      <div id="vocalHistoryBySong" style="display:flex; flex-direction:column; gap:8px;"></div>
     </div>
   </section>
 

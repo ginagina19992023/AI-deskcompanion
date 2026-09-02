@@ -884,6 +884,7 @@ ipcMain.handle('dashboard:extract-instrumental', async (_e, audioPath) => {
           if (result.vocals && result.instrumental) {
             appendVocalHistory({
               type: 'separation',
+              songName: getSongName(audioPath),
               sourceName: basename(audioPath),
               sourcePath: audioPath,
               vocalsPath: result.vocals,
@@ -1068,6 +1069,7 @@ async function runVoiceConversion(audioPath, modelPath, indexPath, pitchShift, i
             const savedModel = (cfg.voiceModels ?? []).find((m) => m.modelPath === modelPath);
             appendVocalHistory({
               type: 'conversion',
+              songName: getSongName(audioPath),
               sourcePath: audioPath,
               modelPath,
               indexPath: indexPath || '',
@@ -1194,6 +1196,7 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
           // moment the user navigates away or restarts the app.
           appendVocalHistory({
             type: 'mix',
+            songName: getSongName(vocalsPath),
             vocalsPath,
             instrumentalPath,
             outputPath: result.output,
@@ -1248,6 +1251,7 @@ ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength } = {
           result.outputUrl = pathToFileURL(result.output).href;
           appendVocalHistory({
             type: 'enhance',
+            songName: getSongName(inputPath),
             sourcePath: inputPath,
             outputPath: result.output,
             strength: Number(strength ?? 0.6),
@@ -1276,6 +1280,85 @@ ipcMain.handle('dashboard:replay-vocal-history-entry', async (_e, { id } = {}) =
     return runVoiceConversion(entry.sourcePath, entry.modelPath, entry.indexPath, entry.pitchShift, entry.indexRate, entry.instrumentalPath);
   }
   return { error: '这种记录类型不支持重新生成' };
+});
+
+// Full-pipeline one-click: transcribe → separate → convert → mix, all at once.
+// Takes audioPath + model params, orchestrates the full ①②③④ flow, returns final mix path.
+ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPath, indexPath, pitchShift, indexRate }) => {
+  if (!audioPath || !existsSync(audioPath)) return { error: '音频文件不存在' };
+  if (!modelPath || !existsSync(modelPath)) return { error: '模型文件不存在' };
+
+  try {
+    // ① Transcribe (optional for full pipeline, skip if only need ②③④)
+    // ② Separate
+    const sep = await new Promise((resolve) => {
+      const scriptPath = join(root, 'tools', 'vocal-remove.py');
+      const outputDir = join(root, 'data', 'vocal-splits');
+      const songName = getSongName(audioPath);
+      const proc = spawn('python', [scriptPath, audioPath, outputDir, '1'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 600000,
+      });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          try { resolve({ error: JSON.parse(stderr).error }); }
+          catch { resolve({ error: stderr.slice(-200) || `分离失败 (code ${code})` }); }
+          return;
+        }
+        try {
+          const result = JSON.parse(stdout.trim().split('\n').pop());
+          if (result.vocals && result.instrumental) {
+            appendVocalHistory({ type: 'separation', songName, sourcePath: audioPath, vocalsPath: result.vocals, instrumentalPath: result.instrumental });
+            resolve({ vocals: result.vocals, instrumental: result.instrumental });
+          } else resolve({ error: '分离输出错误' });
+        } catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
+      });
+      proc.on('error', (err) => resolve({ error: `分离进程失败: ${err.message}` }));
+    });
+    if (sep.error) return sep;
+
+    // ③ Convert (uses separated vocals)
+    const conv = await runVoiceConversion(sep.vocals, modelPath, indexPath, pitchShift, indexRate, sep.instrumental);
+    if (conv.error) return conv;
+
+    // ④ Mix
+    const mix = await new Promise((resolve) => {
+      const scriptPath = join(root, 'tools', 'mix-tracks.py');
+      const songName = getSongName(audioPath);
+      const outputPath = join(root, 'data', 'vocal-splits', `complete-${songName}-${Date.now()}.wav`);
+      const proc = spawn('python', [scriptPath, conv.outputPath || sep.vocals, sep.instrumental, outputPath, '1', '1'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 60000,
+      });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          try { resolve({ error: JSON.parse(stderr).error }); }
+          catch { resolve({ error: stderr.slice(-200) || `混音失败 (code ${code})` }); }
+          return;
+        }
+        try {
+          const result = JSON.parse(stdout.trim());
+          if (result.output) {
+            result.outputUrl = pathToFileURL(result.output).href;
+            appendVocalHistory({ type: 'mix', songName, vocalsPath: conv.outputPath || sep.vocals, instrumentalPath: sep.instrumental, outputPath: result.output });
+            resolve(result);
+          } else resolve({ error: '混音输出错误' });
+        } catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
+      });
+      proc.on('error', (err) => resolve({ error: `混音进程失败: ${err.message}` }));
+    });
+    return mix;
+  } catch (err) {
+    return { error: `一键生成失败: ${err.message}` };
+  }
 });
 
 // Machine-migration backup: bundles config.json + data/ (both deliberately
