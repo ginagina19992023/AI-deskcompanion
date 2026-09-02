@@ -1064,11 +1064,35 @@ function renderVocalHistoryList() {
   // Group by songName (backwards compatible with old records that lack it)
   const bySong = {};
   for (const entry of filtered) {
-    // Try to extract song name from various fields
+    // Try to extract song name from various fields, preferring htdemucs directory for conversions
     let songName = entry.songName;
-    if (!songName && entry.sourceName) songName = entry.sourceName;
-    if (!songName && entry.sourcePath) songName = entry.sourcePath.split(/[\\/]/).pop()?.replace(/\.[^.]*$/, '') || '未知歌曲';
-    if (!songName && entry.vocalsPath) songName = entry.vocalsPath.split(/[\\/]/).pop()?.replace(/\.[^.]*$/, '') || '未知歌曲';
+    if (!songName && entry.sourceName) songName = entry.sourceName?.replace(/\.[^.]*$/, '');
+
+    // For conversion: extract from htdemucs directory (e.g. ".../htdemucs/Song Name/vocals.wav" → "Song Name")
+    if (!songName && entry.type === 'conversion' && entry.sourcePath?.includes('htdemucs')) {
+      const parts = entry.sourcePath.split(/[\\/]/);
+      const htdemucsIdx = parts.findIndex(p => p === 'htdemucs');
+      if (htdemucsIdx >= 0 && htdemucsIdx + 1 < parts.length) {
+        songName = parts[htdemucsIdx + 1];
+      }
+    }
+
+    // For mix/enhance: try vocalsPath or instrumentalPath
+    if (!songName && entry.vocalsPath?.includes('htdemucs')) {
+      const parts = entry.vocalsPath.split(/[\\/]/);
+      const htdemucsIdx = parts.findIndex(p => p === 'htdemucs');
+      if (htdemucsIdx >= 0 && htdemucsIdx + 1 < parts.length) {
+        songName = parts[htdemucsIdx + 1];
+      }
+    }
+    if (!songName && entry.instrumentalPath?.includes('htdemucs')) {
+      const parts = entry.instrumentalPath.split(/[\\/]/);
+      const htdemucsIdx = parts.findIndex(p => p === 'htdemucs');
+      if (htdemucsIdx >= 0 && htdemucsIdx + 1 < parts.length) {
+        songName = parts[htdemucsIdx + 1];
+      }
+    }
+
     songName = songName || '未知歌曲';
     if (!bySong[songName]) bySong[songName] = [];
     bySong[songName].push(entry);
