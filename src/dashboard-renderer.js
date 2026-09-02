@@ -320,7 +320,22 @@ let lastExtractedVocalsPath = '';
 let lastExtractedInstrumentalPath = '';
 
 // 流程进度追踪和更新
-const vocalWorkflowSteps = ['vocalWorkflowStep1', 'vocalWorkflowStep2', 'vocalWorkflowStep3'];
+const vocalWorkflowSteps = ['vocalWorkflowStep1', 'vocalWorkflowStep2', 'vocalWorkflowStep3', 'vocalWorkflowStep4'];
+
+// 一键生成时进度条按阶段逐步点亮，而不是等整条流程（CPU 推理动辄几分钟）
+// 跑完才一次性刷新——中途完全没反馈会让人以为卡死了。手动①②③操作走的
+// 是 updateVocalWorkflow() 那条业务状态判断的路线，这里只管一键面板。
+const fullPipelineStepIndex = { start: 0, separate: 1, convert: 2, mix: 3 };
+function setVocalWorkflowStepDone(idx, done) {
+  document.getElementById(vocalWorkflowSteps[idx])?.classList.toggle('done', done);
+}
+function resetVocalWorkflowSteps() {
+  vocalWorkflowSteps.forEach((_, idx) => setVocalWorkflowStepDone(idx, false));
+}
+window.dash.onFullPipelineProgress?.((step) => {
+  const idx = fullPipelineStepIndex[step];
+  if (idx !== undefined) setVocalWorkflowStepDone(idx, true);
+});
 function updateVocalWorkflow() {
   const steps = vocalWorkflowSteps.map(id => document.getElementById(id));
   const voiceGenCompleteBtnEl = document.getElementById('voiceGenCompleteBtn');
@@ -6049,6 +6064,7 @@ const vocalFullPipelineHandler = () => {
 
     voiceFullPipelineBtnEl.disabled = true;
     voiceFullPipelineStatusEl.textContent = '生成中（①②③④）…';
+    resetVocalWorkflowSteps();
     try {
       const result = await window.dash.fullPipelineVocal({
         audioPath: songPath,

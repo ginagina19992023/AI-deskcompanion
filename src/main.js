@@ -1305,6 +1305,11 @@ ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPat
   if (!audioPath || !existsSync(audioPath)) return { error: '音频文件不存在' };
   if (!modelPath || !existsSync(modelPath)) return { error: '模型文件不存在' };
 
+  // 面板进度条随各阶段完成逐步点亮；不等整条流程跑完才一次性刷新，
+  // CPU 推理动辄几分钟，中途完全没反馈会让人以为卡死了。
+  const sendProgress = (step) => _e.sender.send('dashboard:full-pipeline-progress', step);
+  sendProgress('start');
+
   try {
     // ① Transcribe (optional for full pipeline, skip if only need ②③④)
     // ② Separate
@@ -1337,10 +1342,12 @@ ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPat
       proc.on('error', (err) => resolve({ error: `分离进程失败: ${err.message}` }));
     });
     if (sep.error) return sep;
+    sendProgress('separate');
 
     // ③ Convert (uses separated vocals)
     const conv = await runVoiceConversion(sep.vocals, modelPath, indexPath, pitchShift, indexRate, sep.instrumental);
     if (conv.error) return conv;
+    sendProgress('convert');
 
     // runVoiceConversion resolve 的是 voice-convert.py 的原始 JSON，键名是
     // output；outputPath 只存在于写进历史文件的那个对象里。之前这里读
@@ -1411,6 +1418,7 @@ ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPat
       });
       proc.on('error', (err) => resolve({ error: `混音进程失败: ${err.message}` }));
     });
+    if (!mix.error) sendProgress('mix');
     return mix;
   } catch (err) {
     return { error: `一键生成失败: ${err.message}` };
