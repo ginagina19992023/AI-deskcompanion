@@ -1046,6 +1046,14 @@
         </select>
       </div>
 
+      <div class="field-row">
+        <label for="voiceFullPipelineUseSeparatedVocal">或直接用已分离的人声</label>
+        <select id="voiceFullPipelineUseSeparatedVocal" style="flex:1; max-width:320px;">
+          <option value="">（不用，走完整流程）</option>
+        </select>
+      </div>
+      <p class="hint" style="margin:-4px 0 10px;">选了这里就跳过①②，直接拿这条人声去换声——同一首歌想换别的音色时不用重新分离，省几分钟。</p>
+
       <div class="field-row" style="align-items:center; gap:12px; flex-wrap:wrap;">
         <div style="flex:1; min-width:200px;">
           <label for="voiceFullPipelineModel" style="display:block; margin-bottom:4px; font-size:12px;">RVC 模型</label>
@@ -1054,16 +1062,30 @@
         <button class="btn" id="voiceFullPipelinePickModel" style="align-self:flex-end; margin-bottom:0;">选择</button>
       </div>
 
+      <p class="hint" style="margin:0 0 8px;">或从已保存的音色库直接选，星标是默认音色：</p>
+      <div class="card-grid" id="voiceFullPipelineModelCardGrid" style="margin-bottom:14px;"></div>
+
       <div class="field-row" style="gap:16px; flex-wrap:wrap;">
         <div style="min-width:150px;">
           <label for="voiceFullPipelinePitch" style="display:block; margin-bottom:4px; font-size:12px;">变调（半音）</label>
           <input type="number" id="voiceFullPipelinePitch" value="0" step="1" style="width:100%; box-sizing:border-box;">
         </div>
-        <div style="min-width:150px;">
+        <div style="min-width:150px;" id="voiceFullPipelineIndexRateRow">
           <label for="voiceFullPipelineIndexRate" style="display:block; margin-bottom:4px; font-size:12px;">音色相似度</label>
           <input type="range" id="voiceFullPipelineIndexRate" min="0" max="1" step="0.05" value="0.75" style="width:100%;">
           <span id="voiceFullPipelineIndexRateValue" style="font-size:11px; opacity:0.7;">0.75</span>
         </div>
+      </div>
+
+      <div class="field-row">
+        <label for="voiceFullPipelineEnhance">清晰度增强</label>
+        <input type="checkbox" id="voiceFullPipelineEnhance">
+        <span class="hint" style="margin:0 0 0 8px;">混音前对新人声做一遍提亮，成品更清亮。</span>
+      </div>
+      <div class="field-row" id="voiceFullPipelineEnhanceStrengthRow" style="display:none;">
+        <label for="voiceFullPipelineEnhanceStrength">增强强度</label>
+        <input type="range" id="voiceFullPipelineEnhanceStrength" min="0" max="1" step="0.1" value="0.6" style="flex:1; max-width:200px;">
+        <span id="voiceFullPipelineEnhanceStrengthValue" class="hint" style="margin:0 0 0 8px; width:40px;">0.6</span>
       </div>
 
       <div style="margin-top:12px; padding-top:12px; border-top:1px solid rgba(var(--theme-accent-rgb), 0.1);">
@@ -1184,6 +1206,14 @@
       <div class="card-grid" id="voiceModelCardGrid" style="margin-bottom:14px;"></div>
 
       <div class="field-row">
+        <label for="voiceConvertSourceSelect">要换声的人声轨</label>
+        <select id="voiceConvertSourceSelect" style="flex:1; max-width:320px;">
+          <option value="">（用②刚分离出来的）</option>
+        </select>
+      </div>
+      <p class="hint" style="margin:-4px 0 12px;">默认用②这次分离的结果；想拿以前分离过的人声再换个音色，在这里选那一条就行，不用重跑②。</p>
+
+      <div class="field-row">
         <label for="voiceModelPathDisplay">RVC 模型文件</label>
         <input type="text" id="voiceModelPathDisplay" readonly placeholder="（未选择）" style="flex:1;">
         <button class="btn" id="pickVoiceModelBtn" style="margin-left:8px;">选择 .pth 文件</button>
@@ -1205,6 +1235,16 @@
         <span class="hint" style="margin:0 0 0 8px;">越高越像这个音色本人（但可能咬字发糊），越低越自然（但没那么像）。检测到同目录 .index 文件才会用上</span>
       </div>
       <div class="field-row">
+        <label for="voiceEnhanceCheckbox">清晰度增强</label>
+        <input type="checkbox" id="voiceEnhanceCheckbox">
+        <span class="hint" style="margin:0 0 0 8px;">换声完自动再做一遍提亮，人声偏"糊"、发闷时勾上。结果存成新记录，原版不覆盖，可以对比着挑。</span>
+      </div>
+      <div class="field-row" id="voiceEnhanceStrengthRow" style="display:none;">
+        <label for="voiceEnhanceStrengthParam">增强强度</label>
+        <input type="range" id="voiceEnhanceStrengthParam" min="0" max="1" step="0.1" value="0.6" style="flex:1; max-width:200px;">
+        <span id="voiceEnhanceStrengthParamValue" class="hint" style="margin:0 0 0 8px; width:40px;">0.6</span>
+      </div>
+      <div class="field-row">
         <button class="btn" id="voiceConvertBtn">🎙️ 用这个模型换声</button>
         <button class="btn primary" id="voiceGenCompleteBtn" style="margin-left:8px; display:none; font-weight:600; font-size:13.5px; padding:8px 18px; box-shadow: 0 2px 8px rgba(var(--theme-accent-rgb), 0.35);">✨ 一键生成完整翻唱</button>
         <span id="voiceConvertStatus" class="hint" style="margin:0 0 0 8px;"></span>
@@ -1212,14 +1252,7 @@
       <div id="voiceConvertResults" style="display:none; margin-top:12px; padding:12px; background:rgba(var(--theme-accent-rgb), 0.06); border-radius:6px;">
         <h4 style="margin:0 0 8px; font-size:13px;">换声结果</h4>
         <audio id="voiceConvertedAudio" controls style="width:100%; height:32px;"></audio>
-        <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-          <button class="btn" id="voiceEnhanceBtn" style="font-size:12px; padding:4px 10px;">🪄 清晰度增强</button>
-          <span class="hint" style="margin:0;">强度</span>
-          <input type="range" id="voiceEnhanceStrength" min="0" max="1" step="0.1" value="0.6" style="width:100px;">
-          <span id="voiceEnhanceStrengthValue" class="hint" style="margin:0;">0.6</span>
-          <span id="voiceEnhanceStatus" class="hint" style="margin:0;"></span>
-        </div>
-        <p class="hint" style="margin:4px 0 0;">人声偏"糊"、发闷时试试这个——提亮高频、去掉低频浑浊感。结果会存成新的一条记录，原始版本不会被覆盖，可以对比着挑。</p>
+        <span id="voiceEnhanceStatus" class="hint" style="display:block; margin:6px 0 0;"></span>
         <div id="voiceCompleteAudioSection" style="display:none; margin-top:8px; padding-top:8px; border-top:1px solid rgba(var(--theme-accent-rgb), 0.15);">
           <h5 style="margin:0 0 6px; font-size:12px; font-weight:600;">④ 完整翻唱（新人声+原伴奏）</h5>
           <audio id="voiceCompleteAudio" controls style="width:100%; height:32px;"></audio>

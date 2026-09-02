@@ -424,17 +424,26 @@ const voiceGenCompleteBtnEl = document.getElementById('voiceGenCompleteBtn');
 const voiceCompleteAudioSectionEl = document.getElementById('voiceCompleteAudioSection');
 const voiceFullPipelinePanelEl = document.getElementById('voiceFullPipelinePanel');
 const voiceFullPipelineSongSelectEl = document.getElementById('voiceFullPipelineSongSelect');
+const voiceFullPipelineUseSeparatedVocalEl = document.getElementById('voiceFullPipelineUseSeparatedVocal');
 const voiceFullPipelineModelEl = document.getElementById('voiceFullPipelineModel');
 const voiceFullPipelinePickModelEl = document.getElementById('voiceFullPipelinePickModel');
+const voiceFullPipelineModelCardGridEl = document.getElementById('voiceFullPipelineModelCardGrid');
 const voiceFullPipelinePitchEl = document.getElementById('voiceFullPipelinePitch');
 const voiceFullPipelineIndexRateEl = document.getElementById('voiceFullPipelineIndexRate');
 const voiceFullPipelineIndexRateValueEl = document.getElementById('voiceFullPipelineIndexRateValue');
+const voiceFullPipelineIndexRateRowEl = document.getElementById('voiceFullPipelineIndexRateRow');
+const voiceFullPipelineEnhanceEl = document.getElementById('voiceFullPipelineEnhance');
+const voiceFullPipelineEnhanceStrengthEl = document.getElementById('voiceFullPipelineEnhanceStrength');
+const voiceFullPipelineEnhanceStrengthValueEl = document.getElementById('voiceFullPipelineEnhanceStrengthValue');
+const voiceFullPipelineEnhanceStrengthRowEl = document.getElementById('voiceFullPipelineEnhanceStrengthRow');
 const voiceFullPipelineBtnEl = document.getElementById('voiceFullPipelineBtn');
 const voiceFullPipelineStatusEl = document.getElementById('voiceFullPipelineStatus');
 const voiceCompleteAudioEl = document.getElementById('voiceCompleteAudio');
-const voiceEnhanceBtnEl = document.getElementById('voiceEnhanceBtn');
-const voiceEnhanceStrengthEl = document.getElementById('voiceEnhanceStrength');
-const voiceEnhanceStrengthValueEl = document.getElementById('voiceEnhanceStrengthValue');
+const voiceConvertSourceSelectEl = document.getElementById('voiceConvertSourceSelect');
+const voiceEnhanceCheckboxEl = document.getElementById('voiceEnhanceCheckbox');
+const voiceEnhanceStrengthParamEl = document.getElementById('voiceEnhanceStrengthParam');
+const voiceEnhanceStrengthParamValueEl = document.getElementById('voiceEnhanceStrengthParamValue');
+const voiceEnhanceStrengthRowEl = document.getElementById('voiceEnhanceStrengthRow');
 const voiceEnhanceStatusEl = document.getElementById('voiceEnhanceStatus');
 let lastConvertedVocalsPath = '';
 const voiceModelCardGridEl = document.getElementById('voiceModelCardGrid');
@@ -555,6 +564,51 @@ function renderSavedVoiceModels() {
     card.appendChild(actions);
     voiceModelCardGridEl.appendChild(card);
   }
+  renderFullPipelineModelCards();
+}
+
+// 一键面板的音色选择：和 renderSavedVoiceModels 共用同一份 savedVoiceModels，
+// 但不带"设为默认/重命名/删除"那三个管理按钮——一键面板只负责选，
+// 管理动作留在③那边一处，避免两套 UI 各自维护同一批状态。
+function renderFullPipelineModelCards() {
+  if (!voiceFullPipelineModelCardGridEl) return;
+  voiceFullPipelineModelCardGridEl.replaceChildren();
+
+  if (!savedVoiceModels.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.style.margin = '0';
+    empty.textContent = '还没保存过音色——用上面的「选择」按钮挑一个 .pth 文件';
+    voiceFullPipelineModelCardGridEl.appendChild(empty);
+    return;
+  }
+
+  for (const m of savedVoiceModels) {
+    const isDefault = m.id === defaultVoiceModelId;
+    const card = document.createElement('div');
+    card.className = 'card voice-card' + (m.modelPath === selectedVoiceModelPath ? ' selected' : '');
+    card.innerHTML =
+      `<div class="voice-name">${escapeHtml(m.name)}${isDefault ? ' ⭐' : ''}</div>` +
+      `<div class="voice-path">${escapeHtml(basenameOf(m.modelPath))}</div>` +
+      (m.indexPath ? '<div class="voice-badges"><span class="voice-badge">含 .index</span></div>' : '');
+    card.addEventListener('click', () => {
+      selectedVoiceModelPath = m.modelPath;
+      selectedVoiceIndexPath = m.indexPath || '';
+      if (voiceFullPipelineModelEl) voiceFullPipelineModelEl.value = m.modelPath;
+      if (voiceFullPipelineIndexRateRowEl) {
+        voiceFullPipelineIndexRateRowEl.style.display = selectedVoiceIndexPath ? '' : 'none';
+      }
+      renderFullPipelineModelCards();
+      // ③的卡片高亮同步：直接改 class，不走 renderSavedVoiceModels 以免与
+      // 它末尾的 renderFullPipelineModelCards() 形成来回调用
+      if (voiceModelCardGridEl) {
+        for (const el of voiceModelCardGridEl.querySelectorAll('.voice-card')) {
+          el.classList.remove('selected');
+        }
+      }
+    });
+    voiceFullPipelineModelCardGridEl.appendChild(card);
+  }
 }
 
 async function loadSavedVoiceModels() {
@@ -646,60 +700,58 @@ if (voiceGenCompleteBtnEl) {
   });
 }
 
-if (voiceEnhanceStrengthEl && voiceEnhanceStrengthValueEl) {
-  voiceEnhanceStrengthEl.addEventListener('input', () => {
-    voiceEnhanceStrengthValueEl.textContent = Number(voiceEnhanceStrengthEl.value).toFixed(1);
+if (voiceEnhanceCheckboxEl && voiceEnhanceStrengthRowEl) {
+  voiceEnhanceCheckboxEl.addEventListener('change', () => {
+    voiceEnhanceStrengthRowEl.style.display = voiceEnhanceCheckboxEl.checked ? '' : 'none';
+  });
+}
+if (voiceEnhanceStrengthParamEl && voiceEnhanceStrengthParamValueEl) {
+  voiceEnhanceStrengthParamEl.addEventListener('input', () => {
+    voiceEnhanceStrengthParamValueEl.textContent = Number(voiceEnhanceStrengthParamEl.value).toFixed(1);
   });
 }
 
-if (voiceEnhanceBtnEl) {
-  voiceEnhanceBtnEl.addEventListener('click', async () => {
-    if (!lastConvertedVocalsPath) {
-      alert('先完成上面③「换声」，才有人声可以增强');
+// 增强不再是结果区的独立按钮，而是③的一个参数：换声成功后自动接着跑。
+// 底层仍是同一个 dashboard:enhance-vocal IPC，仍然生成独立的 enhance 记录
+// （原版保留、可对比），只是触发点从"点按钮"改成了"勾选框+换声联动"。
+async function runEnhanceAfterConvert(inputPath, songNameHint) {
+  if (!voiceEnhanceCheckboxEl?.checked) return;
+  if (!inputPath) return;
+
+  const strength = Number(voiceEnhanceStrengthParamEl?.value ?? 0.6);
+  if (voiceEnhanceStatusEl) {
+    voiceEnhanceStatusEl.style.color = '';
+    voiceEnhanceStatusEl.textContent = '增强处理中…';
+  }
+  try {
+    const result = await window.dash.enhanceVocal({
+      inputPath,
+      strength,
+      songName: songNameHint,
+    });
+    if (result.error) {
+      // 增强失败不该把换声成果一起否掉——换声结果本身还是好的
+      if (voiceEnhanceStatusEl) {
+        voiceEnhanceStatusEl.style.color = '#c4304a';
+        voiceEnhanceStatusEl.textContent = `增强失败（换声结果仍可用）: ${result.error}`;
+      }
       return;
     }
-    voiceEnhanceBtnEl.disabled = true;
-    voiceEnhanceBtnEl.textContent = '处理中…';
-    voiceEnhanceStatusEl.textContent = '';
-    try {
-      // Extract song name from selectedConversionEntry if available
-      let songName;
-      if (selectedConversionEntry) {
-        songName = selectedConversionEntry.songName;
-        if (!songName && selectedConversionEntry.sourceName) {
-          songName = selectedConversionEntry.sourceName?.replace(/\.[^.]*$/, '');
-        }
-        if (!songName && selectedConversionEntry.type === 'conversion' && selectedConversionEntry.sourcePath?.includes('htdemucs')) {
-          const parts = selectedConversionEntry.sourcePath.split(/[\\/]/);
-          const idx = parts.findIndex(p => p === 'htdemucs');
-          if (idx >= 0 && idx + 1 < parts.length) songName = parts[idx + 1];
-        }
-      }
-
-      const result = await window.dash.enhanceVocal({
-        inputPath: lastConvertedVocalsPath,
-        strength: Number(voiceEnhanceStrengthEl.value) || 0.6,
-        songName,
-      });
-      if (result.error) {
-        voiceEnhanceStatusEl.style.color = '#c4304a';
-        voiceEnhanceStatusEl.textContent = `✗ ${result.error}`;
-        return;
-      }
-      // 增强结果替换主播放器里播放的内容，方便直接对比听感；原始版本仍保留在歌曲库里
-      voiceConvertedAudioEl.src = result.outputUrl || '';
-      lastConvertedVocalsPath = result.output || lastConvertedVocalsPath;
+    if (voiceEnhanceStatusEl) {
       voiceEnhanceStatusEl.style.color = '';
-      voiceEnhanceStatusEl.textContent = '✓ 已增强，播放器已更新为增强版';
-      loadVocalHistory();
-    } catch (err) {
-      voiceEnhanceStatusEl.style.color = '#c4304a';
-      voiceEnhanceStatusEl.textContent = `✗ 出错: ${err.message}`;
-    } finally {
-      voiceEnhanceBtnEl.disabled = false;
-      voiceEnhanceBtnEl.textContent = '🪄 清晰度增强';
+      voiceEnhanceStatusEl.textContent = `✓ 增强完成（强度 ${strength.toFixed(1)}），已存为新记录`;
     }
-  });
+    if (result.outputUrl && voiceConvertedAudioEl) {
+      voiceConvertedAudioEl.src = result.outputUrl;
+    }
+    lastConvertedVocalsPath = result.output || lastConvertedVocalsPath;
+    loadVocalHistory();
+  } catch (err) {
+    if (voiceEnhanceStatusEl) {
+      voiceEnhanceStatusEl.style.color = '#c4304a';
+      voiceEnhanceStatusEl.textContent = `增强失败（换声结果仍可用）: ${err.message}`;
+    }
+  }
 }
 
 if (pickVoiceModelBtnEl) {
@@ -720,9 +772,18 @@ if (pickVoiceModelBtnEl) {
 
 if (voiceConvertBtnEl) {
   voiceConvertBtnEl.addEventListener('click', async () => {
-    if (!lastExtractedVocalsPath) {
+    // 下拉选了历史人声就用它（并带上它自己的伴奏，避免混音时张冠李戴）；
+    // 否则退回本次会话②刚分离出来的结果。
+    const srcOpt = voiceConvertSourceSelectEl?.selectedOptions?.[0];
+    const pickedVocals = srcOpt?.value || '';
+    const convertAudioPath = pickedVocals || lastExtractedVocalsPath;
+    const convertInstrumentalPath = pickedVocals
+      ? (srcOpt.dataset.instrumental || '')
+      : lastExtractedInstrumentalPath;
+
+    if (!convertAudioPath) {
       voiceConvertStatusEl.style.color = '#c4304a';
-      voiceConvertStatusEl.textContent = '✗ 先做上面②「拆出人声与伴奏」，或去下面"🎵 歌曲库"里点一条分离记录的"用这条轨换声"';
+      voiceConvertStatusEl.textContent = '✗ 先做上面②「拆出人声与伴奏」，或在上面选一条以前分离过的人声，或去下面"🎵 歌曲库"里点一条分离记录的"用这条轨换声"';
       return;
     }
     if (!selectedVoiceModelPath) {
@@ -750,12 +811,12 @@ if (voiceConvertBtnEl) {
 
     try {
       const result = await window.dash.convertVoice({
-        audioPath: lastExtractedVocalsPath,
+        audioPath: convertAudioPath,
         modelPath: selectedVoiceModelPath,
         indexPath: selectedVoiceIndexPath,
         pitchShift: Number(voicePitchShiftEl.value) || 0,
         indexRate: selectedVoiceIndexPath ? Number(voiceIndexRateEl.value) : undefined,
-        instrumentalPath: lastExtractedInstrumentalPath, // 用于记录此换声对应的伴奏
+        instrumentalPath: convertInstrumentalPath, // 用于记录此换声对应的伴奏
       });
       if (result.error) {
         voiceConvertStatusEl.style.color = '#c4304a';
@@ -772,6 +833,9 @@ if (voiceConvertBtnEl) {
       voiceConvertStatusEl.textContent = `✓ 换声完成（用时 ${totalSeconds}s）`;
       updateVocalWorkflow();
       loadVocalHistory();
+      // 增强是③的一个可选参数（勾选框在音色相似度下面）；勾了就在换声
+      // 成功后自动接着跑，songName 留空让主进程自己从路径推断。
+      await runEnhanceAfterConvert(result.output, undefined);
     } catch (err) {
       voiceConvertStatusEl.style.color = '#c4304a';
       voiceConvertStatusEl.textContent = `✗ 出错: ${err.message}`;
@@ -1205,10 +1269,39 @@ function renderVocalHistoryList() {
   }
 }
 
+// ③的人声来源下拉。和一键面板那个（loadFullPipelineSongs 里那份）是两份
+// 独立 UI，但读的是同一批 separation 记录——两边都要能选，需求原话是
+// "已经选过处理过的音乐应该作为音源可选，这个目前两个模式都没有"。
+async function loadConvertSourceOptions() {
+  if (!voiceConvertSourceSelectEl) return;
+  const prev = voiceConvertSourceSelectEl.value;
+  voiceConvertSourceSelectEl.replaceChildren();
+  const noneOpt = document.createElement('option');
+  noneOpt.value = '';
+  noneOpt.textContent = '（用②刚分离出来的）';
+  voiceConvertSourceSelectEl.appendChild(noneOpt);
+  try {
+    const history = await window.dash.listVocalHistory();
+    for (const e of history) {
+      if (e.type !== 'separation' || !e.vocalsPath) continue;
+      const opt = document.createElement('option');
+      opt.value = e.vocalsPath;
+      opt.dataset.instrumental = e.instrumentalPath || '';
+      opt.title = e.vocalsPath;
+      opt.textContent = `${e.songName || basenameOf(e.sourcePath || e.vocalsPath)}（人声轨）`;
+      voiceConvertSourceSelectEl.appendChild(opt);
+    }
+    voiceConvertSourceSelectEl.value = prev; // 刷新后保持用户原来的选择
+  } catch (err) {
+    console.error('[convert] 加载人声来源失败', err);
+  }
+}
+
 async function loadVocalHistory() {
   if (!vocalHistoryListEl) return;
   vocalHistoryCache = await window.dash.listVocalHistory();
   renderVocalHistoryList();
+  loadConvertSourceOptions();
 }
 if (vocalHistoryListEl) loadVocalHistory();
 
@@ -5800,7 +5893,20 @@ const initVocalSectionCollapses = () => {
       const collapsed = toggleBtn.dataset.collapsed === 'true';
       const allChildren = Array.from(panel.children).slice(1);
       allChildren.forEach((el) => {
-        el.style.display = collapsed ? '' : 'none';
+        if (!collapsed) {
+          el.style.display = 'none';
+          return;
+        }
+        // 正在展开：大多数行直接放行，但增强强度这两行自己由勾选框状态
+        // 控制显示（未勾选时应保持隐藏）——这里无脑设成 '' 会覆盖掉那个
+        // 状态，导致折叠面板一展开，没勾选增强也会看到强度滑块。
+        if (el.id === 'voiceEnhanceStrengthRow') {
+          el.style.display = voiceEnhanceCheckboxEl?.checked ? '' : 'none';
+        } else if (el.id === 'voiceFullPipelineEnhanceStrengthRow') {
+          el.style.display = voiceFullPipelineEnhanceEl?.checked ? '' : 'none';
+        } else {
+          el.style.display = '';
+        }
       });
       toggleBtn.textContent = collapsed ? '▼' : '▶';
       toggleBtn.dataset.collapsed = collapsed ? 'false' : 'true';
@@ -5809,9 +5915,90 @@ const initVocalSectionCollapses = () => {
 };
 initVocalSectionCollapses();
 
+// 一键面板的选歌下拉：①那边的 vocalTestSongSelectEl 只喂了 listTestSongs，
+// 这里额外把历史里出现过的原始歌曲、以及已分离的人声轨都列出来——用户
+// "处理过一次的歌"往往就是最想再翻唱一遍的那几首。
+// 选歌下拉的 value 用 path 不是 url：fullPipelineVocal 走的是主进程文件
+// 读取，拿 file:// URL 会失败（①那边用 url 是因为要喂 <audio> 试听）。
+async function loadFullPipelineSongs() {
+  if (voiceFullPipelineSongSelectEl) {
+    voiceFullPipelineSongSelectEl.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '（选一首内置测试曲或处理过的歌）';
+    voiceFullPipelineSongSelectEl.appendChild(placeholder);
+
+    try {
+      const songs = await window.dash.listTestSongs();
+      if (songs.length) {
+        const g = document.createElement('optgroup');
+        g.label = '内置测试歌曲';
+        for (const song of songs) {
+          const opt = document.createElement('option');
+          opt.value = song.path;
+          opt.textContent = song.name;
+          g.appendChild(opt);
+        }
+        voiceFullPipelineSongSelectEl.appendChild(g);
+      }
+    } catch (err) {
+      console.error('[full-pipeline] 加载测试歌曲失败', err);
+    }
+  }
+
+  let history = [];
+  try {
+    history = await window.dash.listVocalHistory();
+  } catch (err) {
+    console.error('[full-pipeline] 加载历史记录失败', err);
+  }
+
+  if (voiceFullPipelineSongSelectEl) {
+    // 同一首歌可能分离过多次，按 sourcePath 去重
+    const seen = new Map();
+    for (const e of history) {
+      if (e.type === 'separation' && e.sourcePath && !seen.has(e.sourcePath)) {
+        seen.set(e.sourcePath, e.songName || basenameOf(e.sourcePath));
+      }
+    }
+    if (seen.size) {
+      const g = document.createElement('optgroup');
+      g.label = '处理过的歌曲';
+      for (const [path, name] of seen) {
+        const opt = document.createElement('option');
+        opt.value = path;
+        opt.title = path;
+        opt.textContent = name;
+        g.appendChild(opt);
+      }
+      voiceFullPipelineSongSelectEl.appendChild(g);
+    }
+  }
+
+  if (voiceFullPipelineUseSeparatedVocalEl) {
+    voiceFullPipelineUseSeparatedVocalEl.replaceChildren();
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '（不用，走完整流程）';
+    voiceFullPipelineUseSeparatedVocalEl.appendChild(noneOpt);
+    // 字段是 vocalsPath（复数），写成 vocalPath 会全部被过滤掉且不报错
+    for (const e of history) {
+      if (e.type !== 'separation' || !e.vocalsPath) continue;
+      const opt = document.createElement('option');
+      opt.value = e.vocalsPath;
+      opt.dataset.instrumental = e.instrumentalPath || '';
+      opt.title = e.vocalsPath;
+      opt.textContent = `${e.songName || basenameOf(e.sourcePath || e.vocalsPath)}（人声轨）`;
+      voiceFullPipelineUseSeparatedVocalEl.appendChild(opt);
+    }
+  }
+}
+
 // --- vocal pipeline: one-click full automation ──────────────────────────
 const vocalFullPipelineHandler = () => {
   if (!voiceFullPipelineBtnEl) return;
+
+  loadFullPipelineSongs();
 
   // Update index-rate value label
   if (voiceFullPipelineIndexRateEl) {
@@ -5820,6 +6007,17 @@ const vocalFullPipelineHandler = () => {
     });
   }
 
+  voiceFullPipelineEnhanceEl?.addEventListener('change', () => {
+    if (voiceFullPipelineEnhanceStrengthRowEl) {
+      voiceFullPipelineEnhanceStrengthRowEl.style.display = voiceFullPipelineEnhanceEl.checked ? '' : 'none';
+    }
+  });
+  voiceFullPipelineEnhanceStrengthEl?.addEventListener('input', () => {
+    if (voiceFullPipelineEnhanceStrengthValueEl) {
+      voiceFullPipelineEnhanceStrengthValueEl.textContent = Number(voiceFullPipelineEnhanceStrengthEl.value).toFixed(1);
+    }
+  });
+
   // Pick model button
   voiceFullPipelinePickModelEl?.addEventListener('click', async () => {
     const { ok, modelPath, indexPath } = await window.dash.pickVoiceModel();
@@ -5827,15 +6025,21 @@ const vocalFullPipelineHandler = () => {
       voiceFullPipelineModelEl.value = modelPath;
       selectedVoiceModelPath = modelPath;
       selectedVoiceIndexPath = indexPath;
+      renderFullPipelineModelCards();
     }
   });
 
   // One-click button
   voiceFullPipelineBtnEl.addEventListener('click', async () => {
-    const songPath = voiceFullPipelineSongSelectEl.value;
+    // 已分离人声优先：选了它就把它当输入喂给 fullPipelineVocal。
+    // 主进程那边会照常跑一次 Demucs——对纯人声轨分离是幂等的（伴奏轨近乎
+    // 静音），代价是多等几分钟。真正跳过②需要主进程支持一个
+    // skipSeparation 分支，本次没做。
+    const separatedVocal = voiceFullPipelineUseSeparatedVocalEl?.value || '';
+    const songPath = separatedVocal || voiceFullPipelineSongSelectEl.value;
     const modelPath = selectedVoiceModelPath;
     if (!songPath) {
-      alert('请先选择一首歌');
+      alert('请先选择一首歌，或选一条已分离的人声');
       return;
     }
     if (!modelPath) {
@@ -5852,6 +6056,9 @@ const vocalFullPipelineHandler = () => {
         indexPath: selectedVoiceIndexPath || '',
         pitchShift: Number(voiceFullPipelinePitchEl.value) || 0,
         indexRate: Number(voiceFullPipelineIndexRateEl.value) || 0.75,
+        enhanceStrength: voiceFullPipelineEnhanceEl?.checked
+          ? Number(voiceFullPipelineEnhanceStrengthEl?.value ?? 0.6)
+          : 0,
       });
 
       if (result.error) {
@@ -5859,6 +6066,7 @@ const vocalFullPipelineHandler = () => {
       } else {
         voiceFullPipelineStatusEl.textContent = `✓ 成品已生成！`;
         loadVocalHistory();
+        loadFullPipelineSongs(); // 新分离出来的歌立刻出现在下拉里
       }
     } catch (err) {
       voiceFullPipelineStatusEl.textContent = `✗ ${err.message}`;
