@@ -1142,12 +1142,20 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
   if (!existsSync(instrumentalPath)) {
     return { error: `伴奏文件不存在: ${instrumentalPath}` };
   }
+  // Sanitize songName to prevent path traversal attacks
+  let songName = providedSongName || getSongName(vocalsPath);
+  songName = String(songName).replace(/[\\/\x00]/g, '_').replace(/^\.+/, '_');
+
   // Always build this ourselves as an absolute path -- the renderer has no
   // Node path/fs access to do it right, and pathToFileURL() below throws on
   // a relative one (confirmed live: this silently ate the whole result,
   // the button just flashed back with nothing to show for it).
-  const songName = providedSongName || getSongName(vocalsPath);
   const outputPath = join(root, 'data', 'vocal-splits', `complete-${songName}-${Date.now()}.wav`);
+  const outputDir = resolve(join(root, 'data', 'vocal-splits'));
+  const resolvedPath = resolve(outputPath);
+  if (!resolvedPath.startsWith(outputDir)) {
+    return { error: '无效的歌曲名' };
+  }
 
   return new Promise((resolve) => {
     const scriptPath = join(root, 'tools', 'mix-tracks.py');
@@ -1222,8 +1230,17 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
 ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength, songName: providedSongName } = {}) => {
   if (!inputPath) return { error: '缺少必要参数' };
   if (!existsSync(inputPath)) return { error: `输入文件不存在: ${inputPath}` };
-  const songName = providedSongName || getSongName(inputPath);
+
+  // Sanitize songName to prevent path traversal attacks
+  let songName = providedSongName || getSongName(inputPath);
+  songName = String(songName).replace(/[\\/\x00]/g, '_').replace(/^\.+/, '_');
+
   const outputPath = join(root, 'data', 'vocal-splits', `enhanced-${songName}-${Date.now()}.wav`);
+  const outputDir = resolve(join(root, 'data', 'vocal-splits'));
+  const resolvedPath = resolve(outputPath);
+  if (!resolvedPath.startsWith(outputDir)) {
+    return { error: '无效的歌曲名' };
+  }
 
   return new Promise((resolve) => {
     const scriptPath = join(root, 'tools', 'enhance-vocal.py');
