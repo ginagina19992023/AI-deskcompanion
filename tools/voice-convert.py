@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 try:
+    import numpy as np
     import torch
     import soundfile as sf
     from hf_rvc import RVCFeatureExtractor, RVCModel
@@ -48,13 +49,30 @@ def ensure_hubert_base() -> Path:
     return HUBERT_BASE_PATH
 
 
+# hf_rvc supports 4 pitch-extraction algorithms (models/feature_extraction_rvc.py:
+# pm/harvest/yin/pyin); "pm" (Praat's autocorrelation tracker) is fast but
+# confirmed live to mistrack pitch on higher/louder notes, which comes out
+# of the vocoder as audible hoarseness/rasp rather than a clean tone --
+# hf_rvc's own docstring calls "harvest" (pyworld's DIO-based estimator)
+# "suitable for handling a wide range of F0 frequencies", which is exactly
+# the failure mode "pm" has. Bumping this default is the fix.
+F0_METHOD = "harvest"
+
+
 def converted_model_dir(model_path: str) -> Path:
     # Cache key is the source file's content hash, not its name/path -- two
     # differently-named copies of the same model file should share one
     # conversion instead of re-converting every time a file gets renamed
     # (confirmed this actually happens -- see the "Sebastian"/"male" rename
-    # earlier in this project's history).
-    digest = hashlib.sha256(Path(model_path).read_bytes()).hexdigest()[:16]
+    # earlier in this project's history). F0_METHOD is folded into the key
+    # too -- the pitch-extraction algorithm is baked into the *converted*
+    # feature_extractor's saved config at conversion time (see
+    # patched_convert_rvc below), so a plain content-hash key would keep
+    # serving an old "pm"-converted cache forever even after this default
+    # changes to "harvest"; every model previously converted before this
+    # fix now hashes to a new cache dir and gets reconverted with harvest
+    # automatically, no manual cache-clearing needed.
+    digest = hashlib.sha256((Path(model_path).read_bytes() + F0_METHOD.encode())).hexdigest()[:16]
     return HUBERT_CACHE_DIR / "converted" / digest
 
 
@@ -145,6 +163,49 @@ def _patch_hf_rvc_weight_norm_mapping():
 
     convert_rvc_module.extract_hubert_state = patched_extract_hubert_state
     return original_extract_hubert_state
+
+
+# hf_rvc's VITS text encoder runs *unwindowed* self-attention (see
+# hf_rvc/models/vits/attentions.py MultiHeadAttention.forward:
+# `scores = torch.matmul(query, key.transpose(-2,-1))` over the *entire*
+# sequence) -- memory for that one score tensor is n_heads * T^2 * 4 bytes,
+# quadratic in input length with zero chunking anywhere in the upstream
+# library. Confirmed live: a 138s clip (T≈13,800 after repeat_interleave)
+# stays under ~1.5GB and converts fine; a ~6.6-minute full song (T≈39,500)
+# tried to allocate 12.46GB in one block and crashed with a CPU OOM at
+# alloc_cpu.cpp. There is no way to fix this inside the attention layer
+# itself without patching the library's architecture, so instead this
+# script slices any input longer than CHUNK_SECONDS into overlapping
+# pieces, converts each independently (bounding peak memory to one chunk's
+# T^2, regardless of total song length), and crossfades the seams back
+# together -- the same strategy RVC WebUI's own slicer.py uses for long
+# inputs, just simpler (fixed-length instead of silence-aware).
+CHUNK_SECONDS = 60.0
+CROSSFADE_SECONDS = 1.0
+
+
+def _is_saturated(samples):
+    # The vits decoder samples fresh Gaussian noise via torch.randn_like()
+    # on *every* call (no seed control anywhere in the RVC ecosystem) --
+    # confirmed live across 8 identical back-to-back calls (same audio,
+    # same pitch_shift): ~1 in 8 draws sends the decoder into a numerically
+    # unstable region where the whole output saturates at the waveform's
+    # +-1.0 ceiling (std ~0.5, vs ~0.06 for a normal draw) -- audibly a
+    # harsh buzz, not degraded singing. A bad draw is simply retried.
+    return (np.abs(samples) >= 0.999).mean() > 0.05
+
+
+def _convert_chunk(model, inputs):
+    # One model(**inputs) call with the existing saturation-retry loop,
+    # factored out so both the single-shot path (short clips) and the
+    # chunked path (long clips) share identical retry behaviour.
+    with torch.no_grad():
+        output = model(**inputs).numpy()
+        for _ in range(4):
+            if not _is_saturated(output):
+                break
+            output = model(**inputs).numpy()
+    return output.squeeze()
 
 
 def _retrieve_blend(features, index, big_npy, rate, k=8):
@@ -297,7 +358,7 @@ def _patch_hf_rvc_v2_support():
 
     original_convert_rvc = convert_rvc_module.convert_rvc
 
-    def patched_convert_rvc(vits_path, save_directory=None, hubert_path="./models/hubert_base", f0_method="pm", unsafe=False, safe_serialization=True):
+    def patched_convert_rvc(vits_path, save_directory=None, hubert_path="./models/hubert_base", f0_method=F0_METHOD, unsafe=False, safe_serialization=True):
         from hf_rvc.converters.convert_hubert import extract_hubert_config, load_fairseq_hubert
         from hf_rvc.converters.convert_vits import extract_vits_config, extract_vits_state, load_vits_checkpoint
         from hf_rvc.models.configuration_rvc import RVCConfig
@@ -347,7 +408,7 @@ def ensure_converted(model_path: str) -> Path:
     import sys
     import hf_rvc.converters.convert_rvc
     convert_rvc_module = sys.modules["hf_rvc.converters.convert_rvc"]
-    convert_rvc_module.convert_rvc(vits_path=model_path, save_directory=str(out_dir), hubert_path=str(hubert_path), unsafe=True)
+    convert_rvc_module.convert_rvc(vits_path=model_path, save_directory=str(out_dir), hubert_path=str(hubert_path), f0_method=F0_METHOD, unsafe=True)
     return out_dir
 
 
@@ -417,38 +478,6 @@ def convert_voice(input_path: str, model_path: str, output_path: str, index_path
             audio = librosa.resample(audio.astype("float32"), orig_sr=sr, target_sr=target_sr)
             sr = target_sr
 
-        inputs = feature_extractor(audio, sampling_rate=sr, f0_up_key=pitch_shift, return_tensors="pt")
-
-        # The vits decoder (SynthesizerTrnMs*.infer, upstream RVC code
-        # unchanged by either patch above) samples fresh Gaussian noise via
-        # torch.randn_like() on *every* call as part of its normal
-        # architecture -- there's no seed control anywhere in the RVC
-        # ecosystem for this. Confirmed live across 8 identical back-to-back
-        # calls (same audio, same pitch_shift): ~1 in 8 draws sends the
-        # decoder into a numerically unstable region where the whole output
-        # saturates at the waveform's +-1.0 ceiling (std ~0.5, vs ~0.06 for
-        # a normal draw) -- audibly a harsh buzz, not degraded singing.
-        # Since a fresh call redraws the noise independently, a bad draw is
-        # simply retried rather than shipped; a real content/shape bug would
-        # reproduce identically on retry and isn't masked by this.
-        def _is_saturated(samples):
-            return (abs(samples) >= 0.999).mean() > 0.05
-
-        with torch.no_grad():
-            output = model(**inputs).numpy()
-            for _ in range(4):
-                if not _is_saturated(output):
-                    break
-                output = model(**inputs).numpy()
-
-        # The vocoder's raw output is (batch, channel, samples) -- soundfile
-        # only accepts (samples,) or (samples, channels), confirmed live
-        # ("Invalid shape: (1, 1, N) (too many dimensions)" is soundfile's
-        # own error, not a model-side failure). Batch and channel are both
-        # 1 here (mono, single clip), so squeezing down to 1-D is exactly
-        # the waveform, no data reordering needed.
-        output = output.squeeze()
-
         # feature_extractor.sampling_rate (16kHz) is the *input* rate HuBERT
         # was trained on -- the vits vocoder upsamples internally and emits
         # audio at its own separate, much higher rate (48kHz per the
@@ -456,7 +485,52 @@ def convert_voice(input_path: str, model_path: str, output_path: str, index_path
         # output with the extractor's rate mislabels 48kHz-worth of samples
         # as 16kHz, which doesn't corrupt the audio data itself but makes
         # every player report/derive a duration 3x too long (48000/16000).
+        # Computed here (before any chunking) since it's a fixed model
+        # property, not something that varies per chunk.
         output_sr = getattr(model.vits.config, "sr", None) or (feature_extractor.sampling_rate if hasattr(feature_extractor, "sampling_rate") else sr)
+
+        total_seconds = len(audio) / sr
+        # A little slack above the raw threshold avoids chopping a
+        # borderline clip (e.g. 61s) into one full chunk plus an awkward
+        # near-empty remainder -- if it fits in one chunk's safety margin,
+        # just run it as a single pass exactly like before (this keeps the
+        # already-validated short-clip path completely unchanged).
+        if total_seconds <= CHUNK_SECONDS * 1.5:
+            inputs = feature_extractor(audio, sampling_rate=sr, f0_up_key=pitch_shift, return_tensors="pt")
+            output = _convert_chunk(model, inputs)
+        else:
+            chunk_samples = int(CHUNK_SECONDS * sr)
+            overlap_samples = int(CROSSFADE_SECONDS * sr)
+            stride_samples = chunk_samples - overlap_samples
+
+            pieces = []  # each: waveform at output_sr for this chunk
+            pos = 0
+            while pos < len(audio):
+                chunk_audio = audio[pos:pos + chunk_samples]
+                if len(chunk_audio) < sr * 0.1:  # trailing sliver too short to be worth a whole inference pass
+                    break
+                inputs = feature_extractor(chunk_audio, sampling_rate=sr, f0_up_key=pitch_shift, return_tensors="pt")
+                pieces.append(_convert_chunk(model, inputs))
+                pos += stride_samples
+
+            # Stitch with a linear crossfade over the overlap region --
+            # both chunks are RVC's own conversion of the *same* underlying
+            # source audio in that region (same melody/lyrics, just an
+            # independent noise draw per hf_rvc's un-seedable vocoder), so
+            # blending them reads as one continuous voice rather than a
+            # hard cut between two different takes.
+            output_overlap = int(round(CROSSFADE_SECONDS * output_sr))
+            output = pieces[0]
+            for piece in pieces[1:]:
+                fade_len = min(output_overlap, len(output), len(piece))
+                if fade_len <= 0:
+                    output = np.concatenate([output, piece])
+                    continue
+                fade_out = np.linspace(1.0, 0.0, fade_len, dtype=output.dtype)
+                fade_in = 1.0 - fade_out
+                blended = output[-fade_len:] * fade_out + piece[:fade_len] * fade_in
+                output = np.concatenate([output[:-fade_len], blended, piece[fade_len:]])
+
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         sf.write(output_path, output, output_sr)
 
