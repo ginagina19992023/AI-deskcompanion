@@ -459,18 +459,18 @@
   .song-card .song-actions { display: flex; gap: 6px; margin-top: 2px; }
   .song-card .song-actions .btn { font-size: 11px; padding: 4px 9px; }
 
-  .vocal-workflow { display: flex; align-items: center; gap: 10px; margin: 14px 0; padding: 12px; background: rgba(var(--theme-accent-rgb), 0.05); border-radius: 8px; }
+  .vocal-workflow { display: flex; align-items: center; gap: 10px; margin: 14px 0; padding: 12px; background: rgba(var(--theme-accent-rgb), 0.12); border-radius: 8px; border: 1px solid rgba(var(--theme-accent-rgb), 0.15); }
   .vocal-workflow-step { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
   .vocal-workflow-num {
     width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 700; border: 2px solid rgba(var(--theme-accent-rgb), 0.3);
-    color: rgba(var(--theme-text-rgb), 0.5); transition: all .2s;
+    font-size: 14px; font-weight: 700; border: 2px solid rgba(var(--theme-accent-rgb), 0.5);
+    color: rgba(var(--theme-text-rgb), 0.8); transition: all .2s; background: rgba(var(--theme-accent-rgb), 0.08);
   }
   .vocal-workflow-step.done .vocal-workflow-num {
-    background: rgba(var(--theme-accent-rgb), 0.3); color: rgba(var(--theme-accent-rgb), 1); border-color: rgba(var(--theme-accent-rgb), 0.7);
+    background: rgba(var(--theme-accent-rgb), 0.4); color: rgba(var(--theme-accent-rgb), 1); border-color: rgba(var(--theme-accent-rgb), 0.8);
   }
-  .vocal-workflow-label { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.5); text-align: center; }
-  .vocal-workflow-arrow { color: rgba(var(--theme-accent-rgb), 0.2); font-size: 16px; margin-bottom: 20px; }
+  .vocal-workflow-label { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.75); text-align: center; font-weight: 500; }
+  .vocal-workflow-arrow { color: rgba(var(--theme-accent-rgb), 0.5); font-size: 16px; margin-bottom: 20px; }
 
   .memory-category-group { margin-bottom: 18px; }
   .memory-category-title { font-size: 12px; font-weight: 700; color: rgba(var(--theme-accent-rgb), 0.85); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
