@@ -981,6 +981,13 @@ ipcMain.handle('dashboard:set-default-voice-model', (_e, { id } = {}) => {
 // Shared by the dashboard:convert-voice handler and the "一键让他再唱一次"
 // history-replay handler below -- both need the exact same subprocess
 // call + history bookkeeping, just triggered from different entry points.
+// Extract sanitized song name from a file path (removes path, extension, and
+// replaces problematic characters with underscores for filesystem safety).
+function getSongName(filePath) {
+  const base = basename(filePath, extname(filePath));
+  return base.replace(/[<>:"/\\|?*\s]+/g, '_').slice(0, 50);
+}
+
 async function runVoiceConversion(audioPath, modelPath, indexPath, pitchShift, indexRate, instrumentalPath) {
   if (!audioPath || !existsSync(audioPath)) {
     return { error: '音频文件不存在' };
@@ -995,7 +1002,8 @@ async function runVoiceConversion(audioPath, modelPath, indexPath, pitchShift, i
       return { error: '转换脚本不存在，请检查 tools/voice-convert.py' };
     }
 
-    const outputPath = join(root, 'data', 'vocal-splits', `converted-${Date.now()}.wav`);
+    const songName = getSongName(audioPath);
+    const outputPath = join(root, 'data', 'vocal-splits', `converted-${songName}-${Date.now()}.wav`);
     // 0.75 matches RVC WebUI's own default index_rate -- kept as the
     // fallback here (not just in voice-convert.py) so a pre-existing saved
     // history entry from before this parameter existed (indexRate
@@ -1136,7 +1144,8 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
   // Node path/fs access to do it right, and pathToFileURL() below throws on
   // a relative one (confirmed live: this silently ate the whole result,
   // the button just flashed back with nothing to show for it).
-  const outputPath = join(root, 'data', 'vocal-splits', `complete-${Date.now()}.wav`);
+  const songName = getSongName(vocalsPath);
+  const outputPath = join(root, 'data', 'vocal-splits', `complete-${songName}-${Date.now()}.wav`);
 
   return new Promise((resolve) => {
     const scriptPath = join(root, 'tools', 'mix-tracks.py');
@@ -1210,7 +1219,8 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
 ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength } = {}) => {
   if (!inputPath) return { error: '缺少必要参数' };
   if (!existsSync(inputPath)) return { error: `输入文件不存在: ${inputPath}` };
-  const outputPath = join(root, 'data', 'vocal-splits', `enhanced-${Date.now()}.wav`);
+  const songName = getSongName(inputPath);
+  const outputPath = join(root, 'data', 'vocal-splits', `enhanced-${songName}-${Date.now()}.wav`);
 
   return new Promise((resolve) => {
     const scriptPath = join(root, 'tools', 'enhance-vocal.py');
