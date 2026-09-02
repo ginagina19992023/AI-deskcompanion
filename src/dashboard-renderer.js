@@ -662,9 +662,24 @@ if (voiceEnhanceBtnEl) {
     voiceEnhanceBtnEl.textContent = '处理中…';
     voiceEnhanceStatusEl.textContent = '';
     try {
+      // Extract song name from selectedConversionEntry if available
+      let songName;
+      if (selectedConversionEntry) {
+        songName = selectedConversionEntry.songName;
+        if (!songName && selectedConversionEntry.sourceName) {
+          songName = selectedConversionEntry.sourceName?.replace(/\.[^.]*$/, '');
+        }
+        if (!songName && selectedConversionEntry.type === 'conversion' && selectedConversionEntry.sourcePath?.includes('htdemucs')) {
+          const parts = selectedConversionEntry.sourcePath.split(/[\\/]/);
+          const idx = parts.findIndex(p => p === 'htdemucs');
+          if (idx >= 0 && idx + 1 < parts.length) songName = parts[idx + 1];
+        }
+      }
+
       const result = await window.dash.enhanceVocal({
         inputPath: lastConvertedVocalsPath,
         strength: Number(voiceEnhanceStrengthEl.value) || 0.6,
+        songName,
       });
       if (result.error) {
         voiceEnhanceStatusEl.style.color = '#c4304a';
@@ -1224,6 +1239,28 @@ if (vocalLibraryGenerateBtnEl) {
     const selected = Array.from(vocalLibrarySelected.values());
     if (selected.length === 0) return;
 
+    // Helper: extract song name from entry
+    function getSongNameFromEntry(entry) {
+      let name = entry.songName;
+      if (!name && entry.sourceName) name = entry.sourceName?.replace(/\.[^.]*$/, '');
+      if (!name && entry.type === 'conversion' && entry.sourcePath?.includes('htdemucs')) {
+        const parts = entry.sourcePath.split(/[\\/]/);
+        const idx = parts.findIndex(p => p === 'htdemucs');
+        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
+      }
+      if (!name && entry.vocalsPath?.includes('htdemucs')) {
+        const parts = entry.vocalsPath.split(/[\\/]/);
+        const idx = parts.findIndex(p => p === 'htdemucs');
+        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
+      }
+      if (!name && entry.instrumentalPath?.includes('htdemucs')) {
+        const parts = entry.instrumentalPath.split(/[\\/]/);
+        const idx = parts.findIndex(p => p === 'htdemucs');
+        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
+      }
+      return name || '未知歌曲';
+    }
+
     // Separate by track type
     const conversions = selected.filter(s => s.trackType === 'conversion').map(s => s.entry);
     const vocals = selected.filter(s => s.trackType === 'vocals').map(s => s.entry);
@@ -1242,14 +1279,18 @@ if (vocalLibraryGenerateBtnEl) {
           alert(`转换 "${conv.modelName}" 缺少伴奏，请选择一条伴奏轨`);
           continue;
         }
-        tasks.push({ vocals: conv.outputPath, instrumental: instPath, label: `${conv.modelName}` });
+        const songName = getSongNameFromEntry(conv);
+        tasks.push({ vocals: conv.outputPath, instrumental: instPath, songName, label: `${conv.modelName}` });
       }
     }
     // Case 2: Selected separation vocals + selected separation instrumentals → mix them
     else if (vocals.length > 0 && instrumentals.length > 0) {
       for (const vocal of vocals) {
         for (const inst of instrumentals) {
-          tasks.push({ vocals: vocal.vocalsPath, instrumental: inst.instrumentalPath, label: '人声+伴奏' });
+          const songName = getSongNameFromEntry(vocal) === getSongNameFromEntry(inst)
+            ? getSongNameFromEntry(vocal)
+            : getSongNameFromEntry(vocal);
+          tasks.push({ vocals: vocal.vocalsPath, instrumental: inst.instrumentalPath, songName, label: '人声+伴奏' });
         }
       }
     }
@@ -1266,7 +1307,11 @@ if (vocalLibraryGenerateBtnEl) {
       vocalLibraryGenerateBtnEl.textContent = `生成中…(${tasks.length})`;
 
       for (const task of tasks) {
-        await window.dash.mixTracks({ vocalsPath: task.vocals, instrumentalPath: task.instrumental });
+        await window.dash.mixTracks({
+          vocalsPath: task.vocals,
+          instrumentalPath: task.instrumental,
+          songName: task.songName,
+        });
       }
       alert(`✨ 已生成 ${tasks.length} 个完整翻唱！`);
       vocalLibrarySelectMode = false;

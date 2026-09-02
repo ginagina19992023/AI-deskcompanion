@@ -1132,7 +1132,7 @@ ipcMain.handle('dashboard:delete-vocal-history-entry', (_e, { id } = {}) => {
 });
 
 // Mix a converted vocal track with an instrumental track into a finished song
-ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath, vocalGain, instrumentalGain }) => {
+ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath, vocalGain, instrumentalGain, songName: providedSongName }) => {
   if (!vocalsPath || !instrumentalPath) {
     return { error: '缺少必要参数' };
   }
@@ -1146,7 +1146,7 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
   // Node path/fs access to do it right, and pathToFileURL() below throws on
   // a relative one (confirmed live: this silently ate the whole result,
   // the button just flashed back with nothing to show for it).
-  const songName = getSongName(vocalsPath);
+  const songName = providedSongName || getSongName(vocalsPath);
   const outputPath = join(root, 'data', 'vocal-splits', `complete-${songName}-${Date.now()}.wav`);
 
   return new Promise((resolve) => {
@@ -1196,7 +1196,7 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
           // moment the user navigates away or restarts the app.
           appendVocalHistory({
             type: 'mix',
-            songName: getSongName(vocalsPath),
+            songName,
             vocalsPath,
             instrumentalPath,
             outputPath: result.output,
@@ -1219,10 +1219,10 @@ ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath
 // presence boost + low-end cut (tools/enhance-vocal.py) and saves the
 // result as its own library entry rather than overwriting the original,
 // so the un-enhanced version stays available for comparison/undo.
-ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength } = {}) => {
+ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength, songName: providedSongName } = {}) => {
   if (!inputPath) return { error: '缺少必要参数' };
   if (!existsSync(inputPath)) return { error: `输入文件不存在: ${inputPath}` };
-  const songName = getSongName(inputPath);
+  const songName = providedSongName || getSongName(inputPath);
   const outputPath = join(root, 'data', 'vocal-splits', `enhanced-${songName}-${Date.now()}.wav`);
 
   return new Promise((resolve) => {
@@ -1251,7 +1251,7 @@ ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength } = {
           result.outputUrl = pathToFileURL(result.output).href;
           appendVocalHistory({
             type: 'enhance',
-            songName: getSongName(inputPath),
+            songName,
             sourcePath: inputPath,
             outputPath: result.output,
             strength: Number(strength ?? 0.6),
