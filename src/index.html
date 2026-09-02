@@ -218,6 +218,25 @@
   .bubble-usage-track { flex: 1; min-width: 12px; height: 6px; border-radius: 3px; background: rgba(var(--theme-accent-rgb), 0.1); overflow: hidden; }
   .bubble-usage-fill { height: 100%; border-radius: 3px; background: rgba(174, 34, 49, 0.9); }
   .bubble-usage-pct { flex: none; font-size: 0.8em; font-variant-numeric: tabular-nums; color: rgba(var(--theme-text-rgb), 0.75); }
+  .bubble-usage-reset { font-size: 0.72em; color: rgba(var(--theme-text-rgb), 0.55); margin: -2px 0 1px 1.5em; }
+  /* 5-hour-usage >=80% push notification -- amber, not the red permission
+     card's alarm tone (nothing is blocked, it's a heads-up), but visually
+     distinct from the neutral bubble-tip so it doesn't read as just another
+     screen observation. */
+  .bubble-usage-alert {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 10px;
+    padding: 7px 10px;
+    background: rgba(214, 158, 46, 0.16);
+    border: 1px solid rgba(214, 158, 46, 0.55);
+    color: rgba(var(--theme-text-rgb), 0.92);
+    font-size: 0.85em;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .bubble-usage-alert-icon { flex: none; line-height: 1; }
   /* Claude is blocked on a real permission prompt in the terminal right
      now -- this is the "click here instead of switching windows" shortcut
      (see pet:permission-request), so it needs to read as more urgent/
@@ -324,7 +343,7 @@
   }
   .chat-msg.pet {
     align-self: flex-start;
-    background: rgba(var(--theme-assistant-bubble-rgb), 0.07);
+    background: rgba(var(--theme-assistant-bubble-rgb), 0.12);
     border-bottom-left-radius: 4px;
   }
   .chat-msg.pending { opacity: 0.6; }

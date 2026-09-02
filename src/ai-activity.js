@@ -30,17 +30,30 @@ export const PROVIDER_LABELS = Object.freeze({
 
 const READ_ONLY_TOOL = /(read|grep|glob|search|fetch|open|find|list|inspect|review|view|screenshot|query)/i;
 const WAIT_TOOL = /(approval|permission|ask[_-]?user|request[_-]?input|confirm)/i;
-const TOOL_LABELS = [
-  [/apply[_-]?patch|edit|write|replace/i, '修改文件'],
-  [/shell|terminal|bash|command|exec/i, '运行终端命令'],
-  [/web.*search|search.*web|browser.*search/i, '搜索网页'],
-  [/web.*open|fetch|browser/i, '查看网页'],
-  [/read|view[_-]?image|inspect/i, '查看文件'],
-  [/grep|glob|find|list/i, '搜索文件'],
-  [/github|git/i, '操作 GitHub'],
-  [/wait/i, '等待后台任务'],
-  [/agent|task|delegate/i, '运行子任务'],
-];
+const TOOL_LABELS = {
+  zh: [
+    [/apply[_-]?patch|edit|write|replace/i, '修改文件'],
+    [/shell|terminal|bash|command|exec/i, '运行终端命令'],
+    [/web.*search|search.*web|browser.*search/i, '搜索网页'],
+    [/web.*open|fetch|browser/i, '查看网页'],
+    [/read|view[_-]?image|inspect/i, '查看文件'],
+    [/grep|glob|find|list/i, '搜索文件'],
+    [/github|git/i, '操作 GitHub'],
+    [/wait/i, '等待后台任务'],
+    [/agent|task|delegate/i, '运行子任务'],
+  ],
+  en: [
+    [/apply[_-]?patch|edit|write|replace/i, 'Editing files'],
+    [/shell|terminal|bash|command|exec/i, 'Running a terminal command'],
+    [/web.*search|search.*web|browser.*search/i, 'Searching the web'],
+    [/web.*open|fetch|browser/i, 'Browsing a page'],
+    [/read|view[_-]?image|inspect/i, 'Reading files'],
+    [/grep|glob|find|list/i, 'Searching files'],
+    [/github|git/i, 'Working with GitHub'],
+    [/wait/i, 'Waiting on a background task'],
+    [/agent|task|delegate/i, 'Running a subtask'],
+  ],
+};
 
 export function normalizeProvider(value) {
   const raw = String(value || 'custom').trim().toLowerCase();
@@ -62,26 +75,36 @@ export function canonicalStatus(value, toolName = '') {
   return toolName ? 'working' : 'idle';
 }
 
-export function friendlyToolName(toolName) {
+export function friendlyToolName(toolName, lang = 'zh') {
   const name = String(toolName || '').replace(/^mcp__/, '').replace(/__/g, ' · ');
-  for (const [pattern, label] of TOOL_LABELS) if (pattern.test(name)) return label;
-  return name ? `使用 ${name.slice(0, 36)}` : '';
+  const labels = TOOL_LABELS[lang] ?? TOOL_LABELS.zh;
+  for (const [pattern, label] of labels) if (pattern.test(name)) return label;
+  return name ? (lang === 'en' ? `Using ${name.slice(0, 36)}` : `使用 ${name.slice(0, 36)}`) : '';
 }
 
-export function normalizeAiActivity(payload, nowMs = Date.now()) {
+const FALLBACK_TEXT = {
+  zh: { working: '正在处理', review: '正在审阅', waitingWithAction: (a) => `等待批准：${a}`, waitingNoAction: '等待你的输入', errorWithAction: (a) => `${a}时出错`, errorNoAction: '运行出错', celebrate: '任务完成', idle: '空闲' },
+  en: { working: 'Working', review: 'Reviewing', waitingWithAction: (a) => `Waiting for approval: ${a}`, waitingNoAction: 'Waiting for your input', errorWithAction: (a) => `Error during ${a}`, errorNoAction: 'Something went wrong', celebrate: 'Task complete', idle: 'Idle' },
+};
+
+// Passed in from main.js's cfg.chat.replyLanguage rather than read from cfg
+// directly -- this module stays pure/config-agnostic so it can be unit
+// tested without touching the filesystem.
+export function normalizeAiActivity(payload, nowMs = Date.now(), lang = 'zh') {
   if (!payload || typeof payload !== 'object') return null;
   const provider = normalizeProvider(payload.provider ?? payload.agent ?? payload.model);
   const providerLabel = PROVIDER_LABELS[provider] ?? String(payload.providerLabel || provider || 'AI');
   const toolName = String(payload.toolName ?? payload.tool_name ?? payload.tool ?? '').slice(0, 80);
   const status = canonicalStatus(payload.status ?? payload.phase ?? payload.event, toolName);
-  const action = friendlyToolName(toolName);
+  const action = friendlyToolName(toolName, lang);
+  const t = FALLBACK_TEXT[lang] ?? FALLBACK_TEXT.zh;
   const fallback = {
-    working: action || '正在处理',
-    review: action || '正在审阅',
-    waiting: action ? `等待批准：${action}` : '等待你的输入',
-    error: action ? `${action}时出错` : '运行出错',
-    celebrate: '任务完成',
-    idle: '空闲',
+    working: action || t.working,
+    review: action || t.review,
+    waiting: action ? t.waitingWithAction(action) : t.waitingNoAction,
+    error: action ? t.errorWithAction(action) : t.errorNoAction,
+    celebrate: t.celebrate,
+    idle: t.idle,
   }[status];
   const detailText = String(payload.detail || fallback || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const rawContextPercent = Number(payload.contextPercent);

@@ -29,11 +29,11 @@ except ImportError:
     sys.exit(1)
 
 
-def transcribe_lyrics(audio_path: str, model_size: str = "base") -> dict:
+def transcribe_lyrics(audio_path: str, language: str = "zh", model_size: str = "base") -> dict:
     """Transcribe lyrics from audio using Whisper."""
     try:
         model = whisper.load_model(model_size)
-        result = model.transcribe(audio_path, language="zh")
+        result = model.transcribe(audio_path, language=language)
         return {
             "text": result["text"],
             "segments": [
@@ -53,6 +53,10 @@ def extract_f0_contour(audio_path: str, hop_length: int = 512) -> dict:
     """Extract fundamental frequency (pitch) contour from audio."""
     try:
         y, sr = librosa.load(audio_path, sr=None)
+        # pyworld's C extension requires float64 -- librosa.load returns
+        # float32, which pyworld silently accepts but produces an all-zero
+        # F0 contour from (no error, just "no pitch detected" downstream).
+        y = np.ascontiguousarray(y, dtype=np.float64)
 
         # Use pyworld to extract F0
         _f0, t = pyworld.dio(y, sr, frame_period=hop_length / sr * 1000)
@@ -85,16 +89,17 @@ def extract_f0_contour(audio_path: str, hop_length: int = 512) -> dict:
 
 def main():
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: python whisper-transcribe.py <audio_file>"}), file=sys.stderr)
+        print(json.dumps({"error": "Usage: python whisper-transcribe.py <audio_file> [language]"}), file=sys.stderr)
         sys.exit(1)
 
     audio_path = sys.argv[1]
+    language = sys.argv[2] if len(sys.argv) > 2 else "zh"  # Default to Chinese
 
     if not Path(audio_path).exists():
         print(json.dumps({"error": f"File not found: {audio_path}"}), file=sys.stderr)
         sys.exit(1)
 
-    lyrics_result = transcribe_lyrics(audio_path)
+    lyrics_result = transcribe_lyrics(audio_path, language)
     f0_result = extract_f0_contour(audio_path)
 
     output = {

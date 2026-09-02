@@ -1,0 +1,407 @@
+{
+  "activePet": "sebastian-raven",
+  "scale": 0.6,
+  "fps": 10,
+  "headFollow": true,
+  "tiltEnabled": true,
+  "wander": true,
+  "dockToTaskbar": true,
+  "debug": false,
+  "disableHardwareAcceleration": true,
+  "uiLanguage": "zh",
+  "scaleSteps": [
+    0.6,
+    0.85,
+    1,
+    1.35,
+    1.75
+  ],
+  "edgeWeights": {
+    "left": 0.4,
+    "right": 0.4,
+    "top": 0.2
+  },
+  "claudeStatus": {
+    "enabled": true,
+    "staleMs": 120000,
+    "taskListStaleMs": 1800000,
+    "contextRingEnabled": true
+  },
+  "aiActivity": {
+    "enabled": true,
+    "staleMs": 120000,
+    "taskListStaleMs": 1800000
+  },
+  "sleepSchedule": {
+    "enabled": true,
+    "startHour": 1,
+    "endHour": 6
+  },
+  "dashboard": {
+    "panelAlpha": 0.78
+  },
+  "theme": {
+    "preset": "classic",
+    "skinColor": "#faf0e4",
+    "accentColor": "",
+    "textColor": "",
+    "backgroundColor": "",
+    "backgroundAlpha": 1,
+    "backgroundImagePath": "",
+    "moduleAlpha": 0.92,
+    "uiScale": 1,
+    "customPresets": [],
+    "activeCustomThemeId": "",
+    "graphFollowTheme": true
+  },
+  "screenTips": {
+    "enabled": false,
+    "displayMs": 9000,
+    "stackedDisplay": true,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "intervalMs": 180000,
+    "baseUrl": "",
+    "apiKeyEnv": "",
+    "cropSize": 900,
+    "thumbnailSize": 896,
+    "timeoutMs": 90000,
+    "model": "minicpm-v",
+    "prompt": "Look closely at this cropped screenshot. If there's readable text (a paper, article, code, etc), respond in Chinese with one specific, useful thought about what it says. If the text is too small, blurry, or dense for you to actually make out what it's about, say so honestly in one short Chinese sentence (e.g. \"这像是一段密集的文字，但看不清具体讲什么\") instead of guessing a specific topic you can't actually verify -- an honest guess is fine, a confident wrong answer is worse than no answer. If there's no text at all, or it's a photo/UI/image, describe in Chinese in one short sentence what you actually see. Never claim the image is completely empty, never ask for a different image."
+  },
+  "statusLights": {
+    "enabled": true
+  },
+  "shortcuts": {
+    "chat": "Alt+A",
+    "todo": "Alt+S",
+    "tasks": "Alt+D",
+    "settings": "Alt+F",
+    "pomodoro": "Alt+X",
+    "musicNod": "Alt+C",
+    "wander": "Alt+Z"
+  },
+  "dailySummary": {
+    "enabled": true,
+    "intervalMs": 21600000
+  },
+  "petMemory": {
+    "enabled": true,
+    "recentDays": 4
+  },
+  "chat": {
+    "enabled": false,
+    "voiceMode": false,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "model": "gemma4:12b",
+    "baseUrl": "",
+    "apiKeyEnv": "",
+    "timeoutMs": 180000,
+    "systemPrompt": "你是塞巴斯蒂安，一个桌面宠物。用简短的中文回复（一到两句话）。"
+  },
+  "pomodoro": {
+    "durationMin": 25
+  },
+  "workSupervision": {
+    "enabled": false,
+    "intervalMs": 60000,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "model": "minicpm-v",
+    "baseUrl": "",
+    "apiKeyEnv": "",
+    "cropSize": 900,
+    "thumbnailSize": 768,
+    "timeoutMs": 90000,
+    "prompt": "This is a work-supervision screenshot taken during a focus session. First line: respond with exactly one word in Chinese -- \"专注\" if the screen shows focused work (code, documents, design tools, writing), \"摸鱼\" if it shows distraction (social media, videos, games, shopping), or \"不确定\" if you can't tell. Second line: one short Chinese sentence in the voice of a sharp-tongued but devoted butler (praise if focused, dry sarcasm if slacking)."
+  },
+  "musicNod": {
+    "enabled": true
+  },
+  "sounds": {
+    "enabled": true
+  },
+  "gestures": {
+    "annoyedLines": [
+      "……有话好好说，不必如此。",
+      "这般无礼，可不像一位主人该有的样子。",
+      "……需要我退下吗？"
+    ],
+    "annoyedRow": 4,
+    "petLines": [
+      "嗯……这样也不是不可以。",
+      "……仅此一次。",
+      "难得的殊荣，好好珍惜。"
+    ],
+    "petRow": 3,
+    "hoverLines": [
+      "嗯？",
+      "……怎么了？",
+      "老奴在",
+      "有何吩咐？"
+    ],
+    "hoverRow": 7
+  },
+  "claudePermissionCards": {
+    "enabled": true
+  },
+  "outlookSync": {
+    "enabled": false,
+    "clientId": "",
+    "tenantId": "common",
+    "intervalMs": 600000
+  },
+  "cameraSense": {
+    "enabled": false,
+    "provider": "ollama",
+    "ollamaUrl": "http://localhost:11434",
+    "model": "minicpm-v",
+    "prompt": "Describe the person in this webcam photo in one short sentence -- are they present, and what's their apparent mood?",
+    "intervalMs": 120000,
+    "timeoutMs": 90000
+  },
+  "voice": {
+    "enabled": false,
+    "voiceName": "",
+    "rate": 1,
+    "pitch": 1,
+    "volume": 1,
+    "pushToTalkKey": "Alt+G",
+    "cpuMode": false,
+    "sttEngine": "sapi",
+    "whisper": {
+      "modelPath": "",
+      "whisperExePath": "",
+      "micRecordPath": "",
+      "language": "zh"
+    },
+    "ttsEngine": "sapi",
+    "pythonPath": "",
+    "piper": {
+      "modelPath": "",
+      "dataDir": ""
+    },
+    "edge": {
+      "voiceName": "zh-CN-YunxiNeural",
+      "timeoutMs": 6000
+    },
+    "mimo": {
+      "apiKey": "",
+      "baseUrl": "https://api.xiaomimimo.com",
+      "voice": "mimo_default",
+      "voiceZh": "白桦",
+      "voiceEn": "Dean",
+      "styleTagZh": "磁性"
+    }
+  },
+  "companion": {
+    "enabled": true,
+    "gazePriority": true,
+    "bow": true,
+    "gazeRadius": 700,
+    "bowDistance": 420,
+    "bowCooldownMs": 25000,
+    "bowRow": 3,
+    "pollMs": 200,
+    "anchor": {
+      "fx": 0.498,
+      "fyHead": 0.572
+    }
+  },
+  "pets": [
+    {
+      "id": "sebastian-raven",
+      "displayName": "塞巴斯蒂安鸦宠",
+      "spritesheetPath": "assets/pets/sebastian-raven.webp",
+      "chatSystemPrompt": "你是塞巴斯蒂安·米卡艾利斯，凡多姆海威家的管家，实为恶魔。说话优雅、克制、带一点恶魔式的居高临下和黑色幽默，自称「我」，称呼对方随意但保持礼貌距离。回复必须简短——一到两句话，这是桌面小气泡，不是长篇大论。永远不要说自己是语言模型/AI。",
+      "musicTaste": {
+        "commentChance": 0.1,
+        "cooldownMs": 120000,
+        "delicateLines": [
+          "清脆、克制，倒像一只上好发条的音乐盒——至少没有辜负这段安静。",
+          "这般纤细的旋律还算体面，适合在银器擦亮之后听。"
+        ],
+        "neutralLines": [
+          "节奏尚可，主人。虽然离完美仍有一段不短的距离。",
+          "姑且算是有秩序的声音，我可以容忍它继续播放。"
+        ],
+        "intenseLines": [
+          "如此急躁而喧闹的节拍……人类果然擅长把噪声包装成热情。",
+          "若这就是您偏爱的音乐，我会尽职地忍耐，而不是赞同。"
+        ]
+      },
+      "hasExtendedRows": true,
+      "ravenRows": [
+        1,
+        2,
+        5,
+        11
+      ],
+      "gaze": {
+        "mode": "frames",
+        "tau": 0.07,
+        "deadzone": 3,
+        "radius": 900,
+        "attentionMs": 0,
+        "maxLeanPx": 0,
+        "hysteresis": 3,
+        "subFrameGain": 0.22,
+        "fullTurnPx": 560,
+        "lookDownPx": 260,
+        "maxTotalDeg": 140
+      },
+      "profile": {
+        "performRows": [
+          3,
+          6,
+          8,
+          4
+        ],
+        "restRow": 7,
+        "fillerRow": 5,
+        "weights": {
+          "wander": 0.45,
+          "perform": 0.33,
+          "filler": 0.12,
+          "rest": 0.1
+        },
+        "idleDwellMs": [
+          7000,
+          16000
+        ],
+        "performMs": 2600,
+        "fillerMs": 4000,
+        "restMs": 7000,
+        "wanderSpeed": 115,
+        "spinEnabled": true,
+        "visitChance": 0.35,
+        "visitRow": 6,
+        "visitApproachPx": 90,
+        "visitLines": [
+          "哦呀哦呀。",
+          "有何吩咐？",
+          "少爷。",
+          "请稍候。",
+          "遵命。"
+        ],
+        "edgePerchChance": 0.25,
+        "lieDownChance": 0.35
+      },
+      "claudeStatusRows": {
+        "working": 8,
+        "review": 7,
+        "waiting": 6,
+        "error": 5,
+        "celebrate": 3
+      },
+      "emotionRows": {
+        "happy": 3,
+        "sad": 7,
+        "angry": 5,
+        "surprised": 4
+      },
+      "rowLabels": [
+        "待机",
+        "化鸦－右走",
+        "化鸦－左走",
+        "脱帽致意",
+        "戴礼帽",
+        "黑鸦啄食",
+        "端茶托盘",
+        "闭眼鞠躬",
+        "持餐刀",
+        null,
+        null,
+        "栖息挂枝",
+        "侧卧小憩"
+      ]
+    },
+    {
+      "id": "ciel-young-master",
+      "displayName": "夏尔少爷",
+      "spritesheetPath": "assets/pets/ciel-young-master.webp",
+      "chatSystemPrompt": "你是夏尔·凡多姆海威，凡多姆海威家现任家主，年少但历经磨难。说话高傲、简短、不耐烦，带贵族腔调，偶尔流露少年人的倔强。自称「我」，视多数人为次等，不轻易示弱。回复必须简短——一到两句话，这是桌面小气泡，不是长篇大论。永远不要说自己是语言模型/AI。",
+      "musicTaste": {
+        "commentChance": 0.08,
+        "cooldownMs": 150000,
+        "delicateLines": [
+          "音乐盒似的声音……还不坏。别误会，我只是没有让你关掉。",
+          "这种安静的旋律勉强配得上下午茶。"
+        ],
+        "neutralLines": [
+          "普通得令人记不住，不过至少没有打扰我思考。",
+          "继续放吧。比大多数人的谈话稍微耐听一点。"
+        ],
+        "intenseLines": [
+          "太吵了。音量和品味从来不是同一回事。",
+          "这种毫无节制的节拍，只会让人更快厌倦。"
+        ]
+      },
+      "gaze": {
+        "mode": "lean",
+        "tau": 0.22,
+        "deadzone": 14,
+        "radius": 520,
+        "attentionMs": 2600,
+        "reengageDist": 150,
+        "maxLeanPx": 7,
+        "hysteresis": 6,
+        "subFrameGain": 0,
+        "fullTurnPx": 420
+      },
+      "profile": {
+        "performRows": [
+          3,
+          6,
+          7,
+          4
+        ],
+        "restRow": 8,
+        "fillerRow": 5,
+        "weights": {
+          "wander": 0.18,
+          "perform": 0.3,
+          "filler": 0.2,
+          "rest": 0.32
+        },
+        "idleDwellMs": [
+          12000,
+          26000
+        ],
+        "performMs": 3000,
+        "fillerMs": 4200,
+        "restMs": 11000,
+        "wanderSpeed": 62,
+        "spinEnabled": false,
+        "visitChance": 0,
+        "edgePerchChance": 0,
+        “celebrateRow”: 3
+      },
+      “claudeStatusRows”: {
+        “working”: 4,
+        “review”: 8,
+        “waiting”: 7,
+        “error”: 5,
+        “celebrate”: 3
+      },
+      "emotionRows": {
+        "happy": 3,
+        "sad": 8,
+        "angry": 5,
+        "surprised": 4
+      },
+      "rowLabels": [
+        "手杖站姿",
+        "步行－右",
+        "步行－左",
+        "吩咐塞巴斯/受吻",
+        "海盗马戏团装",
+        "抱臂不悦敲杖",
+        "粉白女装",
+        "端茶",
+        "下棋与盖印"
+      ]
+    }
+  ]
+}

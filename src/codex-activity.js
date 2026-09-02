@@ -17,7 +17,7 @@ function extractCodexTool(payload) {
   return nested || outerName || 'tool';
 }
 
-export function parseCodexRollout(text, { threadId = 'unknown', nowMs = Date.now() } = {}) {
+export function parseCodexRollout(text, { threadId = 'unknown', nowMs = Date.now(), lang = 'zh' } = {}) {
   let taskTitle = null;
   let activity = null;
   let contextUsage = null;
@@ -70,7 +70,7 @@ export function parseCodexRollout(text, { threadId = 'unknown', nowMs = Date.now
       continue;
     }
     if (p.type === 'reasoning') {
-      activity = { status: 'working', detail: '正在思考', ts, toolName: null };
+      activity = { status: 'working', detail: lang === 'en' ? 'Thinking' : '正在思考', ts, toolName: null };
     }
   }
   if (!activity) return null;
@@ -85,6 +85,7 @@ export function parseCodexRollout(text, { threadId = 'unknown', nowMs = Date.now
       ...contextUsage,
     },
     nowMs,
+    lang,
   );
 }
 
@@ -111,7 +112,7 @@ function dayPath(root, date) {
 
 export function createCodexActivityReader(sessionsRoot) {
   const cache = new Map();
-  return function readCodexActivities(nowMs = Date.now()) {
+  return function readCodexActivities(nowMs = Date.now(), lang = 'zh') {
     const files = [];
     for (const offset of [0, -86400000]) {
       const dir = dayPath(sessionsRoot, new Date(nowMs + offset));
@@ -129,7 +130,7 @@ export function createCodexActivityReader(sessionsRoot) {
       const previous = cache.get(file.path);
       if (!previous || previous.size !== file.size) {
         const threadId = basename(file.name, '.jsonl').match(/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i)?.[1] || file.name;
-        const activity = parseCodexRollout(readTail(file.path), { threadId, nowMs });
+        const activity = parseCodexRollout(readTail(file.path), { threadId, nowMs, lang });
         // Once a long rollout exceeds the tail window, its original user
         // message may no longer be present. Preserve the title learned from
         // an earlier read instead of turning a named task into “未命名任务”.

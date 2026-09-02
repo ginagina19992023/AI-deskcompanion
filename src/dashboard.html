@@ -436,6 +436,42 @@
   }
   .pet-card .pet-actions { display: flex; gap: 8px; margin-top: 4px; }
 
+  .voice-card {
+    display: flex; flex-direction: column; gap: 6px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .voice-card:hover { border-color: rgba(var(--theme-accent-rgb), 0.35); }
+  .voice-card.selected { border-color: rgba(var(--theme-accent-rgb), 0.75); background: rgba(var(--theme-accent-rgb), 0.09); }
+  .voice-card .voice-name { font-size: 14px; font-weight: 700; }
+  .voice-card .voice-path { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.5); word-break: break-all; }
+  .voice-card .voice-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .voice-card .voice-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(var(--theme-accent-rgb), 0.14); color: rgba(var(--theme-text-rgb), 0.75);
+  }
+  .voice-card .voice-actions { display: flex; gap: 6px; margin-top: 2px; flex-wrap: wrap; }
+  .voice-card .voice-actions .btn { font-size: 11px; padding: 4px 9px; }
+
+  .song-card { display: flex; flex-direction: column; gap: 6px; }
+  .song-card .song-title { font-size: 13px; font-weight: 700; }
+  .song-card .song-time { font-size: 10.5px; color: rgba(var(--theme-text-rgb), 0.5); }
+  .song-card audio { width: 100%; height: 30px; }
+  .song-card .song-actions { display: flex; gap: 6px; margin-top: 2px; }
+  .song-card .song-actions .btn { font-size: 11px; padding: 4px 9px; }
+
+  .vocal-workflow { display: flex; align-items: center; gap: 10px; margin: 14px 0; padding: 12px; background: rgba(var(--theme-accent-rgb), 0.05); border-radius: 8px; }
+  .vocal-workflow-step { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .vocal-workflow-num {
+    width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; border: 2px solid rgba(var(--theme-accent-rgb), 0.3);
+    color: rgba(var(--theme-text-rgb), 0.5); transition: all .2s;
+  }
+  .vocal-workflow-step.done .vocal-workflow-num {
+    background: rgba(var(--theme-accent-rgb), 0.3); color: rgba(var(--theme-accent-rgb), 1); border-color: rgba(var(--theme-accent-rgb), 0.7);
+  }
+  .vocal-workflow-label { font-size: 11px; color: rgba(var(--theme-text-rgb), 0.5); text-align: center; }
+  .vocal-workflow-arrow { color: rgba(var(--theme-accent-rgb), 0.2); font-size: 16px; margin-bottom: 20px; }
+
   .memory-category-group { margin-bottom: 18px; }
   .memory-category-title { font-size: 12px; font-weight: 700; color: rgba(var(--theme-accent-rgb), 0.85); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
   .memory-category-badge { font-size: 10px; padding: 1px 7px; border-radius: 8px; background: rgba(var(--theme-accent-rgb), 0.1); }
@@ -552,10 +588,10 @@
   <ul id="navList">
     <li><button class="nav-btn active" data-section="overview">概览</button></li>
     <li><button class="nav-btn" data-section="chat">💬 聊天</button></li>
+    <li><button class="nav-btn" data-section="vocal">🎙️ 演唱室</button></li>
     <li class="nav-group-label">设置</li>
     <li><button class="nav-btn" data-section="appearance">外观</button></li>
     <li><button class="nav-btn" data-section="voicechat">语音与聊天</button></li>
-    <li><button class="nav-btn" data-section="vocal">🎤 唱歌</button></li>
     <li><button class="nav-btn" data-section="models">模型</button></li>
     <li><button class="nav-btn" data-section="automation">自动化</button></li>
     <li><button class="nav-btn" data-section="toggles">互动细节</button></li>
@@ -943,10 +979,12 @@
   </section>
 
   <section class="section" id="section-vocal">
-    <h2>🎤 唱歌</h2>
-    <p class="subtitle">用 MiMo 云端语音的"唱歌模式"合成——跟平时说话走同一个 API，只是歌词前面自动加了唱歌标签，不需要额外配置，需要先在「语音与聊天」页填好 MiMo API Key。</p>
+    <h2>🎙️ 演唱室</h2>
+    <p class="subtitle">这里有两条独立的路，互不依赖：想让角色直接唱一段自己的词，走下面「原创演唱」，一步到位；想拿一首现成的歌、把原唱换成任意音色（旋律和伴奏都不变），走后面「翻唱」那几步。</p>
+
     <div class="panel-block">
-      <h3>歌词</h3>
+      <h3>🎼 原创演唱 · 文字直接转唱</h3>
+      <p class="hint" style="margin-top:0;">最快出效果的路径——不需要准备任何歌曲文件，填词就能唱。</p>
       <div class="field-row" style="align-items: flex-start;">
         <label for="vocalLyricsInput" style="padding-top:6px;">歌词文本</label>
         <textarea id="vocalLyricsInput" rows="4" placeholder="输入想让角色唱的歌词（中文/英文均可，中文效果通常更好）" style="flex:1; min-width:200px; font-family:inherit; resize:vertical;"></textarea>
@@ -974,17 +1012,65 @@
       <p class="hint" style="margin-top:0;">生成的是完整一段人声演唱（会自带旋律和节奏，不是照着歌词念），时长通常比同样文字说话要长不少；不带伴奏，纯人声。免费额度和「语音与聊天」页共用同一个 MiMo Key。</p>
     </div>
 
+    <div style="margin: 22px 0 2px; font-size:13px; font-weight:700; opacity:0.85;">🎧 翻唱 · 把一首歌换成别的音色来唱</div>
+    <p class="hint" style="margin:0 0 8px;">下面①②③连起来是完整流程，到③完成后点「一键生成」就能自动混音出完整翻唱（新人声+原伴奏）。</p>
+
+    <div class="vocal-workflow" id="vocalWorkflow">
+      <div class="vocal-workflow-step" id="vocalWorkflowStep1">
+        <div class="vocal-workflow-num">①</div>
+        <div class="vocal-workflow-label">识歌</div>
+      </div>
+      <div class="vocal-workflow-arrow">→</div>
+      <div class="vocal-workflow-step" id="vocalWorkflowStep2">
+        <div class="vocal-workflow-num">②</div>
+        <div class="vocal-workflow-label">拆伴奏</div>
+      </div>
+      <div class="vocal-workflow-arrow">→</div>
+      <div class="vocal-workflow-step" id="vocalWorkflowStep3">
+        <div class="vocal-workflow-num">③</div>
+        <div class="vocal-workflow-label">换声</div>
+      </div>
+    </div>
+
     <div class="panel-block">
-      <h3>识歌（从音频提取歌词和乐谱）</h3>
+      <h3>① 识歌（可选：从歌曲自动提取歌词/曲谱）</h3>
+      <p class="hint" style="margin-top:0;">纯辅助步骤，跳过也不影响后面②③——只是省得自己听写歌词。</p>
+
       <div class="field-row">
-        <label for="vocalAudioInput">选择音频文件</label>
+        <label for="vocalTestSongSelect">内置测试歌曲</label>
+        <select id="vocalTestSongSelect" style="flex:1; max-width:320px;">
+          <option value="">（先选一首，或者自己上传文件）</option>
+        </select>
+      </div>
+      <div class="field-row" id="vocalTestSongPlayRow" style="display:none;">
+        <label>试听</label>
+        <audio id="vocalTestSongAudio" controls style="flex:1; max-width:320px; height:32px;"></audio>
+        <button class="btn" id="vocalUseTestSongBtn" style="margin-left:8px;">用它识歌</button>
+      </div>
+      <p class="hint" style="margin-top:0;" id="vocalTestSongHint">data/test-songs 目录下的音频会自动出现在这里——放几首 mp3/wav 进去，重启控制面板就能选。</p>
+
+      <div class="field-row" style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(var(--theme-accent-rgb), 0.12);">
+        <label for="vocalAudioInput">或者自己选择音频文件</label>
         <input type="file" id="vocalAudioInput" accept="audio/*" style="flex:1;">
       </div>
       <div class="field-row">
         <button class="btn" id="vocalTranscribeBtn">🎵 识歌</button>
         <span id="vocalTranscribeStatus" class="hint" style="margin:0 0 0 8px;"></span>
       </div>
-      <p class="hint" style="margin-top:0;">从音频文件自动提取歌词（用 Whisper ASR）和音高轨迹（用音高检测）。第一次使用需要下载 Whisper 模型（几百 MB，一次性）。支持 mp3, wav, m4a 等常见格式。</p>
+      <p class="hint" style="margin-top:0;">从音频文件自动提取歌词（用 Whisper ASR）和音高轨迹（用音高检测）。第一次使用需要下载 Whisper 模型（几百 MB，一次性）。支持 mp3, wav, m4a 等常见格式。识别语言跟随「语音与聊天」页设置的回复语言（English 选中时按英文识别，否则按中文）。</p>
+
+      <details style="margin-top:10px;">
+        <summary style="cursor:pointer; font-size:12px; color:rgba(var(--theme-text-rgb), 0.7);">📥 去哪找免费测试歌曲？</summary>
+        <div style="margin-top:8px; font-size:12px; line-height:1.6; color:rgba(var(--theme-text-rgb), 0.75);">
+          <p style="margin:0 0 6px;">推荐几个免费、可商用的音乐来源，下载后放进 <code>data/test-songs</code> 文件夹即可：</p>
+          <ul style="margin:0 0 6px; padding-left:18px;">
+            <li>YouTube 音频库：<code>youtube.com/audiolibrary</code>（免费，部分需署名）</li>
+            <li>Pixabay 音乐：<code>pixabay.com/music</code>（免费商用，无需署名）</li>
+            <li>Free Music Archive：<code>freemusicarchive.org</code></li>
+          </ul>
+          <p style="margin:0;">建议选 15-60 秒、人声清晰、歌词简单的片段，识别效果最好；文件名会直接显示在上面的下拉框里，中文/英文歌名都可以。</p>
+        </div>
+      </details>
 
       <div id="vocalTranscribeResults" style="display:none; margin-top:12px; padding:12px; background:rgba(var(--theme-accent-rgb), 0.06); border-radius:6px;">
         <h4 style="margin:0 0 8px; font-size:13px;">识别结果</h4>
@@ -1004,6 +1090,88 @@
           <span class="hint" style="margin:0 0 0 8px; font-size:12px;">把识别出的歌词复制到上面的"歌词文本"并生成演唱</span>
         </div>
       </div>
+    </div>
+
+    <div class="panel-block">
+      <h3>② 拆出人声与伴奏</h3>
+      <p class="hint" style="margin-top:0;">选一首歌（内置测试曲，或上面①里自己上传的那个），拆成纯人声轨和纯伴奏轨——③会用到这里拆出的人声轨。</p>
+      <div class="field-row">
+        <button class="btn" id="vocalExtractBtn">🎚️ 提取伴奏</button>
+        <span id="vocalExtractStatus" class="hint" style="margin:0 0 0 8px;"></span>
+      </div>
+      <p class="hint" style="margin-top:0;">用的是 Demucs 模型，第一次使用需要下载模型文件（约几百MB，一次性）；CPU 处理比①识歌慢很多，一首 3-4 分钟的歌可能要等几分钟，耐心等一下就好。</p>
+
+      <div id="vocalExtractResults" style="display:none; margin-top:12px; padding:12px; background:rgba(var(--theme-accent-rgb), 0.06); border-radius:6px;">
+        <h4 style="margin:0 0 8px; font-size:13px;">分离结果</h4>
+        <div style="margin-bottom:10px;">
+          <label style="display:block; margin-bottom:4px; font-size:12px; font-weight:600;">🎤 纯人声轨</label>
+          <audio id="vocalExtractedVocalsAudio" controls style="width:100%; height:32px;"></audio>
+        </div>
+        <div>
+          <label style="display:block; margin-bottom:4px; font-size:12px; font-weight:600;">🎹 纯伴奏轨</label>
+          <audio id="vocalExtractedInstrumentalAudio" controls style="width:100%; height:32px;"></audio>
+        </div>
+        <p class="hint" style="margin:8px 0 0;">文件已保存在 <code>data/vocal-splits</code> 文件夹里，下次不用重新分离。</p>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <h3>③ 换声（用 RVC 模型重新演唱人声轨）</h3>
+      <p class="hint" style="margin-top:0;">对②拆出的人声轨做换声——旋律、节奏、咬字时机完全保留，只换音色。换个模型文件就能试别的音色，不用改任何设置。</p>
+
+      <p class="hint" style="margin-top:0;">已保存的音色，点卡片选中即可；⭐ 是默认音色，进这个页面会自动选好，换声一键就能开始。</p>
+      <div class="card-grid" id="voiceModelCardGrid" style="margin-bottom:14px;"></div>
+
+      <div class="field-row">
+        <label for="voiceModelPathDisplay">RVC 模型文件</label>
+        <input type="text" id="voiceModelPathDisplay" readonly placeholder="（未选择）" style="flex:1;">
+        <button class="btn" id="pickVoiceModelBtn" style="margin-left:8px;">选择 .pth 文件</button>
+      </div>
+      <div class="field-row" id="voiceModelSaveRow" style="display:none;">
+        <label for="voiceModelSaveName">保存这个音色为</label>
+        <input type="text" id="voiceModelSaveName" placeholder="给这个音色起个名字" style="flex:1; max-width:200px;">
+        <button class="btn" id="voiceModelSaveBtn" style="margin-left:8px;">保存到音色库</button>
+      </div>
+      <div class="field-row">
+        <label for="voicePitchShift">变调（半音）</label>
+        <input type="number" id="voicePitchShift" value="0" step="1" style="width:80px;">
+        <span class="hint" style="margin:0 0 0 8px;">原唱和目标音色音域差太多时可以调，正数升调、负数降调，不确定先填0</span>
+      </div>
+      <div class="field-row" id="voiceIndexRateRow" style="display:none;">
+        <label for="voiceIndexRate">音色相似度</label>
+        <input type="range" id="voiceIndexRate" min="0" max="1" step="0.05" value="0.75" style="flex:1; max-width:200px;">
+        <span id="voiceIndexRateValue" class="hint" style="margin:0 0 0 8px; width:40px;">0.75</span>
+        <span class="hint" style="margin:0 0 0 8px;">越高越像这个音色本人（但可能咬字发糊），越低越自然（但没那么像）。检测到同目录 .index 文件才会用上</span>
+      </div>
+      <div class="field-row">
+        <button class="btn" id="voiceConvertBtn">🎙️ 用这个模型换声</button>
+        <button class="btn primary" id="voiceGenCompleteBtn" style="margin-left:8px; display:none; font-weight:600; font-size:13.5px; padding:8px 18px; box-shadow: 0 2px 8px rgba(var(--theme-accent-rgb), 0.35);">✨ 一键生成完整翻唱</button>
+        <span id="voiceConvertStatus" class="hint" style="margin:0 0 0 8px;"></span>
+      </div>
+      <div id="voiceConvertResults" style="display:none; margin-top:12px; padding:12px; background:rgba(var(--theme-accent-rgb), 0.06); border-radius:6px;">
+        <h4 style="margin:0 0 8px; font-size:13px;">换声结果</h4>
+        <audio id="voiceConvertedAudio" controls style="width:100%; height:32px;"></audio>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+          <button class="btn" id="voiceEnhanceBtn" style="font-size:12px; padding:4px 10px;">🪄 清晰度增强</button>
+          <span class="hint" style="margin:0;">强度</span>
+          <input type="range" id="voiceEnhanceStrength" min="0" max="1" step="0.1" value="0.6" style="width:100px;">
+          <span id="voiceEnhanceStrengthValue" class="hint" style="margin:0;">0.6</span>
+          <span id="voiceEnhanceStatus" class="hint" style="margin:0;"></span>
+        </div>
+        <p class="hint" style="margin:4px 0 0;">人声偏"糊"、发闷时试试这个——提亮高频、去掉低频浑浊感。结果会存成新的一条记录，原始版本不会被覆盖，可以对比着挑。</p>
+        <div id="voiceCompleteAudioSection" style="display:none; margin-top:8px; padding-top:8px; border-top:1px solid rgba(var(--theme-accent-rgb), 0.15);">
+          <h5 style="margin:0 0 6px; font-size:12px; font-weight:600;">④ 完整翻唱（新人声+原伴奏）</h5>
+          <audio id="voiceCompleteAudio" controls style="width:100%; height:32px;"></audio>
+        </div>
+        <p class="hint" style="margin:8px 0 0;" id="voiceResultHint">按下面"一键生成"按钮可自动将新人声和原伴奏混合成完整翻唱。也可以自己用音频软件（比如 Audacity）手动合并。</p>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <h3>🎵 歌曲库</h3>
+      <p class="hint" style="margin-top:0;">识别过的音频分离结果、换过声的人声轨都会留在这里，随时能重新播放，换声记录还能一键用同样的设置重新生成一次。</p>
+      <div id="vocalHistoryFilterRow" style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;"></div>
+      <div class="card-grid" id="vocalHistoryList"></div>
     </div>
   </section>
 

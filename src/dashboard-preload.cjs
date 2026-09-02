@@ -1,7 +1,7 @@
 // CommonJS on purpose, same reason as the pet window's preload.cjs --
 // Electron preload scripts aren't ES modules even when the package is
 // "type": "module".
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('dash', {
   getData: () => ipcRenderer.invoke('dashboard:get-data'),
@@ -90,4 +90,27 @@ contextBridge.exposeInMainWorld('dash', {
   synthesizeSong: (lyrics, voice) => ipcRenderer.invoke('pet:synthesize-song', { lyrics, voice }),
   chatSendWithImage: (text, imageBase64) => ipcRenderer.send('pet:chat-send-with-image', { text, imageBase64 }),
   transcribeSinging: (audioPath) => ipcRenderer.invoke('dashboard:transcribe-singing', audioPath),
+  extractInstrumental: (audioPath) => ipcRenderer.invoke('dashboard:extract-instrumental', audioPath),
+  pickVoiceModel: () => ipcRenderer.invoke('dashboard:pick-voice-model'),
+  convertVoice: (payload) => ipcRenderer.invoke('dashboard:convert-voice', {
+    audioPath: payload.audioPath,
+    modelPath: payload.modelPath,
+    indexPath: payload.indexPath,
+    pitchShift: payload.pitchShift,
+    indexRate: payload.indexRate,
+    instrumentalPath: payload.instrumentalPath,
+  }),
+  saveVoiceModel: (payload) => ipcRenderer.invoke('dashboard:save-voice-model', payload),
+  renameVoiceModel: (id, name) => ipcRenderer.invoke('dashboard:rename-voice-model', { id, name }),
+  deleteVoiceModel: (id) => ipcRenderer.invoke('dashboard:delete-voice-model', { id }),
+  setDefaultVoiceModel: (id) => ipcRenderer.invoke('dashboard:set-default-voice-model', { id }),
+  listVocalHistory: () => ipcRenderer.invoke('dashboard:list-vocal-history'),
+  deleteVocalHistoryEntry: (id) => ipcRenderer.invoke('dashboard:delete-vocal-history-entry', { id }),
+  replayVocalHistoryEntry: (id) => ipcRenderer.invoke('dashboard:replay-vocal-history-entry', { id }),
+  mixTracks: (payload) => ipcRenderer.invoke('dashboard:mix-tracks', payload),
+  enhanceVocal: (payload) => ipcRenderer.invoke('dashboard:enhance-vocal', payload),
+  listTestSongs: () => ipcRenderer.invoke('dashboard:list-test-songs'),
+  // Electron 32+ dropped File.path for security; webUtils is the replacement
+  // way to resolve a <input type=file> File object back to an absolute path.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 });

@@ -2,7 +2,7 @@ import { app, BrowserWindow, screen, ipcMain, Tray, Menu, dialog, nativeImage, g
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, copyFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { ATLAS, BASE_ROWS } from './atlas.js';
@@ -169,6 +169,7 @@ const todosPath = join(dataDir, 'todos.json');
 const pomodoroSessionsPath = join(dataDir, 'pomodoro-sessions.json');
 const chatConvsPath = join(dataDir, 'chat-conversations.json');
 const petMemoryPath = join(dataDir, 'pet-memory.json');
+const vocalHistoryPath = join(dataDir, 'vocal-history.json');
 
 function loadJsonArray(path) {
   try {
@@ -182,6 +183,18 @@ function loadJsonArray(path) {
 function saveJsonArray(path, arr) {
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(path, JSON.stringify(arr, null, 2), 'utf8');
+}
+
+// Every completed separation/conversion gets a row here so the dashboard
+// can offer "play it again" / "sing it again" without re-running Demucs or
+// RVC inference -- both of which are the slow, CPU-bound steps in this
+// feature. Capped at 100 most-recent entries so this doesn't grow forever;
+// the actual audio files on disk aren't touched by that cap, only the
+// history listing.
+function appendVocalHistory(entry) {
+  const history = loadJsonArray(vocalHistoryPath);
+  history.unshift({ id: `vh-${Date.now()}`, createdAt: Date.now(), ...entry });
+  saveJsonArray(vocalHistoryPath, history.slice(0, 100));
 }
 
 function loadJsonObject(path) {
@@ -728,6 +741,24 @@ ipcMain.handle('pet:synthesize-song', async (_e, { lyrics, voice } = {}) => {
   }
 });
 
+// Lists whatever audio files the user has dropped into data/test-songs so
+// the dashboard's "内置测试歌曲" dropdown has something to show without
+// requiring the user to browse for a file every time. Missing directory or
+// no matching files is a normal, silent empty state -- not an error.
+const TEST_SONG_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.ogg']);
+ipcMain.handle('dashboard:list-test-songs', () => {
+  const dir = join(root, 'data', 'test-songs');
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter((name) => TEST_SONG_EXTENSIONS.has(extname(name).toLowerCase()))
+      .map((name) => ({ name, path: join(dir, name), url: pathToFileURL(join(dir, name)).href }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  } catch {
+    return [];
+  }
+});
+
 // Singing transcription: extract lyrics and pitch from audio using Whisper + librosa
 ipcMain.handle('dashboard:transcribe-singing', async (_e, audioPath) => {
   if (!audioPath || !existsSync(audioPath)) {
@@ -741,7 +772,11 @@ ipcMain.handle('dashboard:transcribe-singing', async (_e, audioPath) => {
     }
 
     return new Promise((resolve) => {
-      const proc = spawn('python', [scriptPath, audioPath], {
+      // Get language from config - use 'en' for English, 'zh' for Chinese
+      const replyLanguage = cfg.chat?.replyLanguage || 'zh';
+      const whistPerLanguage = replyLanguage === 'en' ? 'en' : 'zh';
+
+      const proc = spawn('python', [scriptPath, audioPath, whistPerLanguage], {
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 120000, // 2 minute timeout for Whisper
       });
@@ -787,6 +822,450 @@ ipcMain.handle('dashboard:transcribe-singing', async (_e, audioPath) => {
   } catch (err) {
     return { error: err.message };
   }
+});
+
+// Vocal separation: split a song into vocals.wav + no_vocals.wav (backing
+// track) via Demucs (tools/vocal-remove.py). Output lands under
+// data/vocal-splits/<original filename>/ so it survives across runs and
+// each source file gets its own subfolder rather than overwriting a shared
+// pair of output files.
+ipcMain.handle('dashboard:extract-instrumental', async (_e, audioPath) => {
+  if (!audioPath || !existsSync(audioPath)) {
+    return { error: '音频文件不存在' };
+  }
+
+  try {
+    const scriptPath = join(root, 'tools', 'vocal-remove.py');
+    if (!existsSync(scriptPath)) {
+      return { error: '分离脚本不存在，请检查 tools/vocal-remove.py' };
+    }
+
+    const outputDir = join(root, 'data', 'vocal-splits');
+
+    return new Promise((resolve) => {
+      const proc = spawn('python', [scriptPath, audioPath, outputDir], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // Demucs on CPU is far slower than Whisper -- a 3-4 minute song can
+        // take several minutes to separate, so this needs a much longer
+        // ceiling than the transcription timeout above.
+        timeout: 600000,
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          if (stderr) {
+            try {
+              const errJson = JSON.parse(stderr);
+              resolve({ error: errJson.error });
+            } catch {
+              resolve({ error: stderr.slice(-500) });
+            }
+          } else {
+            resolve({ error: `分离失败 (code ${code})` });
+          }
+          return;
+        }
+
+        try {
+          const result = JSON.parse(stdout.trim().split('\n').pop());
+          if (result.instrumental) result.instrumentalUrl = pathToFileURL(result.instrumental).href;
+          if (result.vocals) result.vocalsUrl = pathToFileURL(result.vocals).href;
+          if (result.vocals && result.instrumental) {
+            appendVocalHistory({
+              type: 'separation',
+              sourceName: basename(audioPath),
+              sourcePath: audioPath,
+              vocalsPath: result.vocals,
+              instrumentalPath: result.instrumental,
+            });
+          }
+          resolve(result);
+        } catch (err) {
+          resolve({ error: `解析结果失败: ${err.message}` });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ error: `启动分离进程失败: ${err.message}` });
+      });
+    });
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Lets the dashboard point at any RVC model file (.pth) the user has
+// downloaded or trained themselves -- deliberately not tied to a specific
+// model, so swapping voices is just picking a different file, no code
+// change needed. The .index file (if present alongside the .pth) is picked
+// up automatically by name convention below rather than asked for
+// separately, since that's how RVC model folders are normally shared.
+ipcMain.handle('dashboard:pick-voice-model', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: '选择 RVC 模型文件 (.pth)',
+    filters: [{ name: 'RVC 模型', extensions: ['pth'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, cancelled: true };
+  const modelPath = result.filePaths[0];
+  // Same-folder .index file, if any -- RVC model shares typically ship the
+  // two files together in one folder, .index just improves conversion
+  // quality and isn't required.
+  const dir = dirname(modelPath);
+  let indexPath = null;
+  try {
+    const indexFile = readdirSync(dir).find((f) => f.endsWith('.index'));
+    if (indexFile) indexPath = join(dir, indexFile);
+  } catch {
+    // dir read failure just means no auto-detected index -- not fatal
+  }
+  return { ok: true, modelPath, indexPath };
+});
+
+// Saved voice-model library (cfg.voiceModels) + a default pick
+// (cfg.defaultVoiceModelId) -- same shape/pattern as the theme's
+// customPresets above, just for RVC model file references instead of
+// colour snapshots. Only paths + a display name are stored, never the
+// model file itself -- picking a saved entry just re-resolves to whatever
+// is on disk at that path.
+ipcMain.handle('dashboard:save-voice-model', (_e, { name, modelPath, indexPath } = {}) => {
+  const trimmedName = String(name ?? '').trim().slice(0, 40);
+  if (!trimmedName) return { ok: false, error: '请输入音色名字' };
+  if (!modelPath || !existsSync(modelPath)) return { ok: false, error: '模型文件不存在' };
+  cfg.voiceModels = cfg.voiceModels ?? [];
+  const id = `voice-${Date.now()}`;
+  cfg.voiceModels.push({ id, name: trimmedName, modelPath, indexPath: indexPath || '' });
+  if (!cfg.defaultVoiceModelId) cfg.defaultVoiceModelId = id; // first saved model becomes the default automatically
+  persistConfig();
+  return { ok: true, id, voiceModels: cfg.voiceModels, defaultVoiceModelId: cfg.defaultVoiceModelId };
+});
+
+ipcMain.handle('dashboard:rename-voice-model', (_e, { id, name } = {}) => {
+  const trimmed = String(name ?? '').trim().slice(0, 40);
+  if (!trimmed) return { ok: false, error: '请输入音色名字' };
+  const entry = (cfg.voiceModels ?? []).find((m) => m.id === id);
+  if (!entry) return { ok: false, error: '音色不存在' };
+  entry.name = trimmed;
+  persistConfig();
+  return { ok: true, voiceModels: cfg.voiceModels };
+});
+
+ipcMain.handle('dashboard:delete-voice-model', (_e, { id } = {}) => {
+  cfg.voiceModels = (cfg.voiceModels ?? []).filter((m) => m.id !== id);
+  if (cfg.defaultVoiceModelId === id) cfg.defaultVoiceModelId = cfg.voiceModels[0]?.id ?? '';
+  persistConfig();
+  return { ok: true, voiceModels: cfg.voiceModels, defaultVoiceModelId: cfg.defaultVoiceModelId };
+});
+
+ipcMain.handle('dashboard:set-default-voice-model', (_e, { id } = {}) => {
+  if (id && !(cfg.voiceModels ?? []).some((m) => m.id === id)) return { ok: false, error: '音色不存在' };
+  cfg.defaultVoiceModelId = id || '';
+  persistConfig();
+  return { ok: true, defaultVoiceModelId: cfg.defaultVoiceModelId };
+});
+
+// Voice conversion: re-voice an isolated vocal track (from
+// dashboard:extract-instrumental's vocals.wav) with an RVC model, keeping
+// the original melody/rhythm intact -- see tools/voice-convert.py.
+// Shared by the dashboard:convert-voice handler and the "一键让他再唱一次"
+// history-replay handler below -- both need the exact same subprocess
+// call + history bookkeeping, just triggered from different entry points.
+async function runVoiceConversion(audioPath, modelPath, indexPath, pitchShift, indexRate, instrumentalPath) {
+  if (!audioPath || !existsSync(audioPath)) {
+    return { error: '音频文件不存在' };
+  }
+  if (!modelPath || !existsSync(modelPath)) {
+    return { error: '模型文件不存在' };
+  }
+
+  try {
+    const scriptPath = join(root, 'tools', 'voice-convert.py');
+    if (!existsSync(scriptPath)) {
+      return { error: '转换脚本不存在，请检查 tools/voice-convert.py' };
+    }
+
+    const outputPath = join(root, 'data', 'vocal-splits', `converted-${Date.now()}.wav`);
+    // 0.75 matches RVC WebUI's own default index_rate -- kept as the
+    // fallback here (not just in voice-convert.py) so a pre-existing saved
+    // history entry from before this parameter existed (indexRate
+    // undefined) still replays at the same blend it always used. Uses
+    // Number.isFinite rather than `|| 0.75` specifically so an explicit
+    // indexRate of 0 (user deliberately turned retrieval off) survives --
+    // `0 || 0.75` would wrongly discard that and silently re-enable it.
+    const resolvedIndexRate = Number(indexRate);
+    const args = [
+      scriptPath,
+      audioPath,
+      modelPath,
+      outputPath,
+      indexPath || '',
+      String(Number(pitchShift) || 0),
+      String(Number.isFinite(resolvedIndexRate) ? resolvedIndexRate : 0.75),
+    ];
+
+    return await new Promise((resolve) => {
+      const proc = spawn('python', args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // CPU inference (no dedicated GPU on this machine) -- confirmed
+        // live this is *slower* than Demucs separation above, not faster:
+        // a 138s song-length vocal clip took 6m14s end to end (~2.7x
+        // realtime), so the previous 300000ms (5min) ceiling would kill a
+        // real song mid-conversion. 1200000ms covers that measured rate up
+        // to a ~7 minute song, plus headroom for the occasional saturated-
+        // output retry (see the retry loop in voice-convert.py).
+        timeout: 1200000,
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          if (stderr) {
+            try {
+              const errJson = JSON.parse(stderr);
+              resolve({ error: errJson.error });
+            } catch {
+              resolve({ error: stderr.slice(-500) });
+            }
+          } else {
+            resolve({ error: `转换失败 (code ${code})` });
+          }
+          return;
+        }
+
+        try {
+          const result = JSON.parse(stdout.trim().split('\n').pop());
+          if (result.output) {
+            result.outputUrl = pathToFileURL(result.output).href;
+            const savedModel = (cfg.voiceModels ?? []).find((m) => m.modelPath === modelPath);
+            appendVocalHistory({
+              type: 'conversion',
+              sourcePath: audioPath,
+              modelPath,
+              indexPath: indexPath || '',
+              modelName: savedModel?.name ?? basename(modelPath),
+              pitchShift: Number(pitchShift) || 0,
+              indexRate: resolvedIndexRate,
+              outputPath: result.output,
+              instrumentalPath: instrumentalPath || '', // 此换声对应的伴奏文件
+            });
+          }
+          resolve(result);
+        } catch (err) {
+          resolve({ error: `解析结果失败: ${err.message}` });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ error: `启动转换进程失败: ${err.message}` });
+      });
+    });
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+ipcMain.handle('dashboard:convert-voice', (_e, { audioPath, modelPath, indexPath, pitchShift, indexRate, instrumentalPath }) =>
+  runVoiceConversion(audioPath, modelPath, indexPath, pitchShift, indexRate, instrumentalPath),
+);
+
+// The "生成记录" library -- past separations/conversions, so "sing it
+// again" or "listen to that one again" is a click on an existing file
+// instead of re-running Demucs/RVC. Entries whose file(s) no longer exist
+// on disk (user cleaned up data/vocal-splits by hand) are filtered out here
+// rather than shown as broken players.
+ipcMain.handle('dashboard:list-vocal-history', () => {
+  const history = loadJsonArray(vocalHistoryPath);
+  return history
+    .filter((h) => {
+      if (h.type === 'separation') return existsSync(h.vocalsPath) && existsSync(h.instrumentalPath);
+      if (h.type === 'conversion') return existsSync(h.outputPath);
+      if (h.type === 'mix') return existsSync(h.outputPath);
+      if (h.type === 'enhance') return existsSync(h.outputPath);
+      return false;
+    })
+    .map((h) => ({
+      ...h,
+      vocalsUrl: h.vocalsPath ? pathToFileURL(h.vocalsPath).href : undefined,
+      instrumentalUrl: h.instrumentalPath ? pathToFileURL(h.instrumentalPath).href : undefined,
+      outputUrl: h.outputPath ? pathToFileURL(h.outputPath).href : undefined,
+    }));
+});
+
+ipcMain.handle('dashboard:delete-vocal-history-entry', (_e, { id } = {}) => {
+  // Removes the listing only, not the underlying audio file -- disk space
+  // is cheap and this stays non-destructive by default; the user can still
+  // clean up data/vocal-splits by hand if they want the bytes gone too.
+  const history = loadJsonArray(vocalHistoryPath).filter((h) => h.id !== id);
+  saveJsonArray(vocalHistoryPath, history);
+  return { ok: true };
+});
+
+// Mix a converted vocal track with an instrumental track into a finished song
+ipcMain.handle('dashboard:mix-tracks', async (_e, { vocalsPath, instrumentalPath, vocalGain, instrumentalGain }) => {
+  if (!vocalsPath || !instrumentalPath) {
+    return { error: '缺少必要参数' };
+  }
+  if (!existsSync(vocalsPath)) {
+    return { error: `人声文件不存在: ${vocalsPath}` };
+  }
+  if (!existsSync(instrumentalPath)) {
+    return { error: `伴奏文件不存在: ${instrumentalPath}` };
+  }
+  // Always build this ourselves as an absolute path -- the renderer has no
+  // Node path/fs access to do it right, and pathToFileURL() below throws on
+  // a relative one (confirmed live: this silently ate the whole result,
+  // the button just flashed back with nothing to show for it).
+  const outputPath = join(root, 'data', 'vocal-splits', `complete-${Date.now()}.wav`);
+
+  return new Promise((resolve) => {
+    const scriptPath = join(root, 'tools', 'mix-tracks.py');
+    const args = [
+      scriptPath,
+      vocalsPath,
+      instrumentalPath,
+      outputPath,
+      String(vocalGain || 1.0),
+      String(instrumentalGain || 1.0),
+    ];
+
+    const proc = spawn('python', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        try {
+          const errJson = JSON.parse(stderr);
+          resolve({ error: errJson.error });
+        } catch {
+          resolve({ error: stderr.slice(-200) || `混音失败 (code ${code})` });
+        }
+        return;
+      }
+
+      try {
+        const result = JSON.parse(stdout.trim());
+        if (result.output) {
+          result.outputUrl = pathToFileURL(result.output).href;
+          // Persist to the library too -- otherwise a finished mix only
+          // lives in the renderer's <audio> element and vanishes the
+          // moment the user navigates away or restarts the app.
+          appendVocalHistory({
+            type: 'mix',
+            vocalsPath,
+            instrumentalPath,
+            outputPath: result.output,
+          });
+        }
+        resolve(result);
+      } catch (err) {
+        resolve({ error: `解析结果失败: ${err.message}` });
+      }
+    });
+
+    proc.on('error', (err) => {
+      resolve({ error: `启动混音进程失败: ${err.message}` });
+    });
+  });
+});
+
+// Clarity pass for a converted vocal track -- the VITS vocoder's output
+// commonly reads as "muffled" next to the source recording, this applies a
+// presence boost + low-end cut (tools/enhance-vocal.py) and saves the
+// result as its own library entry rather than overwriting the original,
+// so the un-enhanced version stays available for comparison/undo.
+ipcMain.handle('dashboard:enhance-vocal', async (_e, { inputPath, strength } = {}) => {
+  if (!inputPath) return { error: '缺少必要参数' };
+  if (!existsSync(inputPath)) return { error: `输入文件不存在: ${inputPath}` };
+  const outputPath = join(root, 'data', 'vocal-splits', `enhanced-${Date.now()}.wav`);
+
+  return new Promise((resolve) => {
+    const scriptPath = join(root, 'tools', 'enhance-vocal.py');
+    const args = [scriptPath, inputPath, outputPath, String(strength ?? 0.6)];
+    const proc = spawn('python', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (data) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        try {
+          const errJson = JSON.parse(stderr);
+          resolve({ error: errJson.error });
+        } catch {
+          resolve({ error: stderr.slice(-200) || `处理失败 (code ${code})` });
+        }
+        return;
+      }
+      try {
+        const result = JSON.parse(stdout.trim());
+        if (result.output) {
+          result.outputUrl = pathToFileURL(result.output).href;
+          appendVocalHistory({
+            type: 'enhance',
+            sourcePath: inputPath,
+            outputPath: result.output,
+            strength: Number(strength ?? 0.6),
+          });
+        }
+        resolve(result);
+      } catch (err) {
+        resolve({ error: `解析结果失败: ${err.message}` });
+      }
+    });
+
+    proc.on('error', (err) => {
+      resolve({ error: `启动处理进程失败: ${err.message}` });
+    });
+  });
+});
+
+// "一键让他再唱一次" -- re-runs a past conversion with its exact saved
+// parameters (same source vocals, same model, same pitch shift) rather
+// than making the user re-pick everything. Reuses tools/voice-convert.py's
+// own model-conversion cache, so this is fast unless the model changed.
+ipcMain.handle('dashboard:replay-vocal-history-entry', async (_e, { id } = {}) => {
+  const entry = loadJsonArray(vocalHistoryPath).find((h) => h.id === id);
+  if (!entry) return { error: '记录不存在' };
+  if (entry.type === 'conversion') {
+    return runVoiceConversion(entry.sourcePath, entry.modelPath, entry.indexPath, entry.pitchShift, entry.indexRate, entry.instrumentalPath);
+  }
+  return { error: '这种记录类型不支持重新生成' };
 });
 
 function startVoiceStt() {
@@ -1064,7 +1543,7 @@ function safeActivityFilePart(value) {
 }
 
 function persistExternalActivity(payload) {
-  const activity = normalizeAiActivity(payload);
+  const activity = normalizeAiActivity(payload, Date.now(), cfg.chat?.replyLanguage === 'en' ? 'en' : 'zh');
   if (!activity) return null;
   mkdirSync(aiSessionsDir, { recursive: true });
   const path = join(aiSessionsDir, `${safeActivityFilePart(activity.provider)}-${safeActivityFilePart(activity.sessionId)}.json`);
@@ -1798,9 +2277,16 @@ let lastMusicCommentAt = 0;
 let musicCommentInFlight = false;
 
 const MUSIC_MOOD_DESC = {
-  intense: '节奏快、能量高，听起来很带劲',
-  delicate: '节奏舒缓、能量低，听起来很温柔安静',
-  neutral: '节奏适中，不快不慢',
+  zh: {
+    intense: '节奏快、能量高，听起来很带劲',
+    delicate: '节奏舒缓、能量低，听起来很温柔安静',
+    neutral: '节奏适中，不快不慢',
+  },
+  en: {
+    intense: 'fast tempo and high energy, sounds exciting',
+    delicate: 'slow tempo and low energy, sounds gentle and quiet',
+    neutral: 'moderate tempo, neither fast nor slow',
+  },
 };
 
 // Real per-song identification (track title/artist) isn't wired up -- this
@@ -1826,19 +2312,33 @@ const MUSIC_MOOD_DESC = {
 async function generateMusicComment(samples, taste) {
   const mood = classifyMusicPulse(samples);
   const chatCfg = cfg.chat ?? {};
-  if (!chatCfg.enabled) return pickMusicComment(samples, taste);
-  const prompt =
-    `你正在听主人现在播放的音乐，能感受到的特点是：${MUSIC_MOOD_DESC[mood] ?? MUSIC_MOOD_DESC.neutral}。` +
-    '用你自己的角色口吻，即兴说一句话评论一下这段音乐或跟着的感觉——不超过 20 个字，只输出这一句话，不要加引号、不要解释。';
+  const isEnglish = chatCfg.replyLanguage === 'en';
+  const langKey = isEnglish ? 'en' : 'zh';
+  if (!chatCfg.enabled) return pickMusicComment(samples, taste, Math.random, langKey);
+
+  // Get the mood description in the correct language
+  const moodDesc = MUSIC_MOOD_DESC[langKey][mood] ?? MUSIC_MOOD_DESC[langKey].neutral;
+
+  let prompt;
+  if (isEnglish) {
+    prompt =
+      `You're listening to the music the user is playing right now. The characteristics you sense are: ${moodDesc}.` +
+      ' Comment on this music or what you feel listening to it in your own character voice — keep it under 20 words, output only this sentence, no quotes or explanations.';
+  } else {
+    prompt =
+      `你正在听主人现在播放的音乐，能感受到的特点是：${moodDesc}。` +
+      '用你自己的角色口吻，即兴说一句话评论一下这段音乐或跟着的感觉——不超过 20 个字，只输出这一句话，不要加引号、不要解释。';
+  }
+
   try {
     const pet = activePet();
     const systemPrompt = pet.chatSystemPrompt ?? chatCfg.systemPrompt;
     const full = await streamChatReply({ ...chatCfg, timeoutMs: chatCfg.timeoutMs ?? 90000, systemPrompt }, [{ role: 'user', content: prompt }], () => {});
-    const text = full.trim().replace(/^["'“”]+|["'“”]+$/g, '').slice(0, 40);
-    return text ? { mood, text } : pickMusicComment(samples, taste);
+    const text = full.trim().replace(/^[“'””]+|[“'””]+$/g, '').slice(0, 40);
+    return text ? { mood, text } : pickMusicComment(samples, taste, Math.random, langKey);
   } catch (err) {
     if (cfg.debug) console.error('[music-comment] AI generation failed, falling back to phrase pool:', err.message);
-    return pickMusicComment(samples, taste);
+    return pickMusicComment(samples, taste, Math.random, langKey);
   }
 }
 
@@ -1992,7 +2492,7 @@ const DEFAULT_PACK_PROFILE = {
   edgePerchChance: 0,
   lieDownChance: 0,
 };
-const DEFAULT_PACK_CLAUDE_ROWS = { working: 3, review: 8, waiting: 6, error: 5 };
+const DEFAULT_PACK_CLAUDE_ROWS = { working: 3, review: 8, waiting: 6, error: 5, celebrate: 3 };
 const DEFAULT_PACK_GAZE = { mode: 'lean', tau: 0.2, deadzone: 10, radius: 600, attentionMs: 1500, maxLeanPx: 6, hysteresis: 5, subFrameGain: 0, fullTurnPx: 480 };
 
 function findPackImage(dir) {
@@ -2303,7 +2803,7 @@ ipcMain.handle('dashboard:set-active-pet', (_e, id) => {
 // so there's no live-patch path without a lot more plumbing for something
 // this minor.
 ipcMain.handle('dashboard:set-action-mapping', (_e, { status, row }) => {
-  const validStatuses = new Set(['working', 'review', 'waiting', 'error']);
+  const validStatuses = new Set(['working', 'review', 'waiting', 'error', 'celebrate']);
   if (!validStatuses.has(status)) return { ok: false, error: '未知状态' };
   const rowNum = Number(row);
   if (!Number.isInteger(rowNum) || rowNum < 0) return { ok: false, error: '行号不对' };
@@ -2388,6 +2888,12 @@ function createWindow() {
     // own, so it needs telling once on this fresh load.
     sendUnseenCompletion();
     if (unseenCompletion) startFocusWatch();
+    // The top-right todo-count badge otherwise only updates on the next
+    // add/complete/remove/edit or opening the todo panel -- confirmed-live
+    // bug where a session that never touches the todo panel shows no badge
+    // at all even with pending todos, because activeTodoCount in the
+    // renderer starts at 0 and nothing ever pushes the real count to it.
+    sendTodos();
     if (!cfg.debug) return;
     const d = screen.getPrimaryDisplay();
     console.log(
@@ -2560,6 +3066,8 @@ function dashboardSnapshot() {
       uiScale: cfg.theme?.uiScale ?? 1,
       musicCommentChance: activePet().musicTaste?.commentChance ?? 0.08,
       musicCommentCooldownMs: activePet().musicTaste?.cooldownMs ?? 120000,
+      voiceModels: cfg.voiceModels ?? [],
+      defaultVoiceModelId: cfg.defaultVoiceModelId ?? '',
     },
     gestures: cfg.gestures ?? {},
     outlookSync: { clientId: cfg.outlookSync?.clientId ?? '', tenantId: cfg.outlookSync?.tenantId ?? 'common' },
@@ -3116,7 +3624,7 @@ function readSessionDirectory(dir) {
   const sessions = [];
   for (const f of files) {
     try {
-      const data = normalizeAiActivity(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+      const data = normalizeAiActivity(JSON.parse(readFileSync(join(dir, f), 'utf8')), Date.now(), cfg.chat?.replyLanguage === 'en' ? 'en' : 'zh');
       if (!data) continue;
       if (now - data.ts > staleMs) continue; // stale -- hook stopped writing, session likely dead
       sessions.push(data);
@@ -3130,7 +3638,7 @@ function readSessionDirectory(dir) {
 function readActiveSessions() {
   const sessions = [...readSessionDirectory(petSessionsDir), ...readSessionDirectory(aiSessionsDir)];
   try {
-    sessions.push(...readCodexActivities());
+    sessions.push(...readCodexActivities(Date.now(), cfg.chat?.replyLanguage === 'en' ? 'en' : 'zh'));
   } catch (err) {
     if (cfg.debug) console.error('[codex-activity] read failed:', err.message);
   }
@@ -3301,7 +3809,7 @@ function pollAiStatus() {
   // before its per-session file is written.
   let legacy = null;
   try {
-    legacy = normalizeAiActivity({ provider: 'claude', ...JSON.parse(readFileSync(claudeStatusPath, 'utf8')) });
+    legacy = normalizeAiActivity({ provider: 'claude', ...JSON.parse(readFileSync(claudeStatusPath, 'utf8')) }, Date.now(), cfg.chat?.replyLanguage === 'en' ? 'en' : 'zh');
     if (legacy) activities.push(legacy);
   } catch {
     /* no Claude hook snapshot, or a write raced this read */

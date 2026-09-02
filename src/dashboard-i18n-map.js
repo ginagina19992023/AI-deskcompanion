@@ -33,7 +33,7 @@ export const DASHBOARD_I18N = {
       tasks: 'AI 任务',
       history: '记录',
       report: '报告',
-      vocal: '🎤 唱歌',
+      vocal: '🎙️ 演唱室',
     },
     h2: {
       overview: '概览',
@@ -50,11 +50,11 @@ export const DASHBOARD_I18N = {
       tasks: 'AI 任务',
       history: '记录',
       report: '报告',
-      vocal: '🎤 唱歌',
+      vocal: '🎙️ 演唱室',
     },
     subtitle: {
       appearance: '控制面板和桌宠身上的颜色、透明度、缩放、提示音——纯粹跟"好不好看/吵不吵"有关的设置都在这',
-      vocal: '用 MiMo 云端语音的"唱歌模式"合成——跟平时说话走同一个 API，只是歌词前面自动加了唱歌标签，不需要额外配置，需要先在「语音与聊天」页填好 MiMo API Key。',
+      vocal: '这里有两条独立的路，互不依赖：想让角色直接唱一段自己的词，走下面「原创演唱」，一步到位；想拿一首现成的歌、把原唱换成任意音色（旋律和伴奏都不变），走后面「翻唱」那几步。',
     },
   },
   en: {
@@ -79,7 +79,7 @@ export const DASHBOARD_I18N = {
       tasks: 'AI Tasks',
       history: 'History',
       report: 'Reports',
-      vocal: '🎤 Singing',
+      vocal: '🎙️ Singing Studio',
     },
     h2: {
       overview: 'Overview',
@@ -96,11 +96,11 @@ export const DASHBOARD_I18N = {
       tasks: 'AI Tasks',
       history: 'History',
       report: 'Reports',
-      vocal: '🎤 Singing',
+      vocal: '🎙️ Singing Studio',
     },
     subtitle: {
       appearance: 'Colors, opacity, scale, and notification sounds for the control panel and desktop pet -- everything purely about "how it looks / how loud it is" lives here.',
-      vocal: 'Generate singing using MiMo Cloud "singing mode" - uses same API as voice chat, auto-adds singing tags to lyrics, requires MiMo API Key in Voice & Chat settings.',
+      vocal: 'Two independent paths here: to have the character sing your own lyrics, use "Original Singing" below -- one step, done. To take an existing song and swap the singer\'s voice (melody and backing track untouched), use the "Cover" steps further down.',
     },
   },
 };

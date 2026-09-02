@@ -287,7 +287,7 @@ test('every claudeStatusRows entry is a valid, distinct row per pet', () => {
   for (const pet of cfg.pets) {
     const rows = pet.claudeStatusRows;
     assert.ok(rows, `${pet.id} is missing claudeStatusRows`);
-    for (const key of ['working', 'review', 'waiting', 'error']) {
+    for (const key of ['working', 'review', 'waiting', 'error', 'celebrate']) {
       const row = rows[key];
       assert.ok(
         Number.isInteger(row) && row >= 0 && row < ROW_FRAME_COUNTS.length,

@@ -249,6 +249,7 @@ window.pet.onContextUsage((list) => {
   contextUsageList = Array.isArray(list) ? list : [];
 });
 let rateLimits = null;
+const USAGE_ALERT_THRESHOLD = 80;
 window.pet.onRateLimits((limits) => {
   rateLimits = limits;
 });
@@ -2224,6 +2225,22 @@ function bubbleTip(text) {
   return card;
 }
 
+// The 80%-5-hour-usage push notification -- deliberately its own visual
+// (not bubbleTip's neutral styling) so it reads as a heads-up rather than
+// just another passing observation.
+function bubbleUsageAlert(text) {
+  const card = document.createElement('div');
+  card.className = 'bubble-usage-alert';
+  const icon = document.createElement('span');
+  icon.className = 'bubble-usage-alert-icon';
+  icon.textContent = '⚠️';
+  const body = document.createElement('span');
+  body.textContent = capBubbleText(text);
+  card.appendChild(icon);
+  card.appendChild(body);
+  return card;
+}
+
 function bubbleAttention() {
   const card = document.createElement('div');
   card.className = 'bubble-card';
@@ -2281,6 +2298,17 @@ function updateBubbles() {
   } else {
     chatReplyText = null;
     speechLine = null;
+    // Persistent, not a timed one-shot popup -- stays up the whole time
+    // 5-hour usage sits at/above 80%, stacking alongside whatever else is
+    // showing (status card, pomodoro, tips) rather than taking the slot
+    // over from them. Recomputed fresh every frame from live rateLimits,
+    // so it disappears on its own the moment usage drops back under 80%
+    // (a real reset), no separate "was it already shown" state to track.
+    if (typeof rateLimits?.fiveHourUsedPercent === 'number' && rateLimits.fiveHourUsedPercent >= USAGE_ALERT_THRESHOLD) {
+      const pct = Math.round(rateLimits.fiveHourUsedPercent);
+      bubbleAreaEl.appendChild(bubbleUsageAlert(`5小时用量已达 ${pct}%，${formatResetEta(rateLimits.fiveHourResetsAt)}`));
+      anyContent = true;
+    }
     // lastOverrideRow reflects the currently-active override (it's only
     // reassigned on a transition, so it holds steady while unchanged). The
     // Claude-status card and the screen-tip bubble are independent sources
@@ -2407,6 +2435,19 @@ function drawAttentionLight() {
 // provides five_hour and seven_day (weekly) windows officially (see
 // https://code.claude.com/docs/en/statusline) -- there's no "monthly"
 // figure to show, so this deliberately doesn't invent a third row for one.
+// Shared by the hover usage card and the 80%-threshold alert bubble --
+// relative phrasing ("X小时X分钟后重置") rather than a raw clock time so
+// it stays meaningful regardless of the viewer's sense of the current time.
+function formatResetEta(resetsAt) {
+  if (resetsAt == null) return '';
+  const deltaMs = resetsAt - Date.now();
+  if (deltaMs <= 0) return '即将重置';
+  const totalMin = Math.round(deltaMs / 60000);
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  return hours > 0 ? `预计 ${hours} 小时 ${mins} 分钟后重置` : `预计 ${mins} 分钟后重置`;
+}
+
 function bubbleUsageCard(entry) {
   const card = document.createElement('div');
   card.className = 'bubble-usage-card';
@@ -2415,9 +2456,9 @@ function bubbleUsageCard(entry) {
   // map to "5-hour" vs "weekly" without pausing to think; 💬/5/W each read
   // as their own thing instantly.
   const rows = [
-    { icon: '💬', used: typeof entry?.contextPercent === 'number' ? entry.contextPercent : null },
-    { icon: '5', used: rateLimits?.fiveHourUsedPercent != null ? rateLimits.fiveHourUsedPercent / 100 : null },
-    { icon: 'W', used: rateLimits?.weekUsedPercent != null ? rateLimits.weekUsedPercent / 100 : null },
+    { icon: '💬', used: typeof entry?.contextPercent === 'number' ? entry.contextPercent : null, resetsAt: null },
+    { icon: '5', used: rateLimits?.fiveHourUsedPercent != null ? rateLimits.fiveHourUsedPercent / 100 : null, resetsAt: rateLimits?.fiveHourResetsAt ?? null },
+    { icon: 'W', used: rateLimits?.weekUsedPercent != null ? rateLimits.weekUsedPercent / 100 : null, resetsAt: rateLimits?.weekResetsAt ?? null },
   ];
   for (const r of rows) {
     if (r.used === null) continue;
@@ -2440,6 +2481,14 @@ function bubbleUsageCard(entry) {
     row.appendChild(track);
     row.appendChild(label);
     card.appendChild(row);
+    // 5h/weekly rows carry a reset time (context-window row doesn't reset
+    // on a clock -- it just tracks the current conversation).
+    if (r.resetsAt != null) {
+      const resetRow = document.createElement('div');
+      resetRow.className = 'bubble-usage-reset';
+      resetRow.textContent = formatResetEta(r.resetsAt);
+      card.appendChild(resetRow);
+    }
   }
   if (!card.children.length) {
     const empty = document.createElement('span');
@@ -2475,8 +2524,8 @@ function fillClaudeBurst(r, rayWidth, coreR, fillStyle) {
 // merge into one soft asterisk/sun body. A crimson silhouette underneath the
 // near-black body creates one clean outer outline instead of the segmented
 // flower lines from the previous version.
-function drawContextSun(cx, cy, r, color, nowMs) {
-  const motion = contextSunMotion(nowMs);
+function drawContextSun(cx, cy, r, color, nowMs, urgent) {
+  const motion = contextSunMotion(nowMs, urgent ? 2 : 1);
   const pulseR = r * (0.97 + motion.rayPulse * 0.06);
   const coreR = pulseR * 0.5;
   const rayWidth = pulseR * 0.38;
@@ -2545,6 +2594,9 @@ function drawContextRings(nowMs) {
   const stepY = 2 * rOuter + CONTEXT_RING_GAP * dpr;
   const cx = canvas.width - rOuter - 3 * dpr;
   const baseCy = canvas.height - rOuter - 3 * dpr;
+  // Account-wide, so it applies the same to every session's badge -- 5h/
+  // weekly usage isn't per-session data, unlike the ring itself.
+  const fiveHourUrgent = rateLimits?.fiveHourUsedPercent != null && rateLimits.fiveHourUsedPercent >= 80;
 
   contextUsageList.forEach((entry, i) => {
     const percent = entry?.contextPercent;
@@ -2585,7 +2637,7 @@ function drawContextRings(nowMs) {
       g.fill();
     }
 
-    drawContextSun(cx, cy, rMark, color, nowMs);
+    drawContextSun(cx, cy, rMark, color, nowMs, fiveHourUrgent);
 
     g.restore();
   });

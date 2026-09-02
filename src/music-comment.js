@@ -15,9 +15,23 @@ export function classifyMusicPulse(samples) {
   return 'neutral';
 }
 
-export function pickMusicComment(samples, taste, random = Math.random) {
+// Generic, character-neutral fallback for English -- the per-pet lines in
+// config.json (delicateLines/neutralLines/intenseLines) are hand-written in
+// the character's own voice and only exist in Chinese, so this only kicks
+// in when lang is 'en' and the pet config hasn't grown an English-specific
+// pool of its own (delicateLinesEn etc, checked first below).
+const GENERIC_EN_LINES = {
+  delicate: ['A quiet, gentle tune -- rather soothing.', 'Soft and understated. Not bad at all.'],
+  neutral: ['A decent rhythm, nothing more, nothing less.', 'Ordinary, but not unpleasant.'],
+  intense: ['Quite an energetic beat, that one.', 'Loud and lively -- a bit much, but lively.'],
+};
+
+export function pickMusicComment(samples, taste, random = Math.random, lang = 'zh') {
   const mood = classifyMusicPulse(samples);
-  const lines = taste?.[`${mood}Lines`] ?? taste?.neutralLines ?? [];
+  const lines =
+    (lang === 'en' && taste?.[`${mood}LinesEn`]) ||
+    (lang === 'en' && GENERIC_EN_LINES[mood]) ||
+    (taste?.[`${mood}Lines`] ?? taste?.neutralLines ?? []);
   if (!lines.length) return null;
   const index = Math.min(lines.length - 1, Math.floor(Math.max(0, random()) * lines.length));
   return { mood, text: lines[index] };

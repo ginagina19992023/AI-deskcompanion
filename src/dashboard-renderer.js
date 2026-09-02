@@ -181,30 +181,113 @@ const vocalTranscribeResultsEl = document.getElementById('vocalTranscribeResults
 const vocalTranscribedLyricsEl = document.getElementById('vocalTranscribedLyrics');
 const vocalTranscribedPitchEl = document.getElementById('vocalTranscribedPitch');
 const vocalUseTranscribedBtnEl = document.getElementById('vocalUseTranscribedBtn');
+const vocalTestSongSelectEl = document.getElementById('vocalTestSongSelect');
+const vocalTestSongPlayRowEl = document.getElementById('vocalTestSongPlayRow');
+const vocalTestSongAudioEl = document.getElementById('vocalTestSongAudio');
+const vocalUseTestSongBtnEl = document.getElementById('vocalUseTestSongBtn');
+
+// Track the path to actually transcribe: either an uploaded file (resolved
+// via webUtils, since Electron 32+ dropped File.path) or a picked built-in
+// test song. Whichever was chosen most recently wins.
+let vocalSelectedAudioPath = '';
+
+async function loadTestSongs() {
+  if (!vocalTestSongSelectEl) return;
+  let songs = [];
+  try {
+    songs = await window.dash.listTestSongs();
+  } catch (err) {
+    // window.dash.listTestSongs is added by a preload/main.js change that
+    // only takes effect after a full app restart (not just a window
+    // reload) -- surface that clearly instead of leaving a silently
+    // unpopulated dropdown that looks like "there's nothing to pick".
+    vocalTestSongSelectEl.replaceChildren();
+    const errOpt = document.createElement('option');
+    errOpt.value = '';
+    errOpt.textContent = '（功能未生效，请完全重启应用后再试）';
+    vocalTestSongSelectEl.appendChild(errOpt);
+    return;
+  }
+  vocalTestSongSelectEl.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = songs.length ? '（先选一首，或者自己上传文件）' : '（data/test-songs 里还没有音频，见下方指南）';
+  vocalTestSongSelectEl.appendChild(placeholder);
+  for (const song of songs) {
+    const opt = document.createElement('option');
+    opt.value = song.url;
+    opt.dataset.path = song.path;
+    opt.textContent = song.name;
+    vocalTestSongSelectEl.appendChild(opt);
+  }
+}
+
+if (vocalTestSongSelectEl) {
+  loadTestSongs();
+  vocalTestSongSelectEl.addEventListener('change', () => {
+    const opt = vocalTestSongSelectEl.selectedOptions[0];
+    if (!opt || !opt.value) {
+      vocalTestSongPlayRowEl.style.display = 'none';
+      vocalTestSongAudioEl.removeAttribute('src');
+      return;
+    }
+    vocalTestSongAudioEl.src = opt.value;
+    vocalTestSongPlayRowEl.style.display = '';
+    vocalSelectedAudioPath = opt.dataset.path;
+    vocalAudioInputEl.value = '';
+  });
+}
+
+if (vocalUseTestSongBtnEl) {
+  vocalUseTestSongBtnEl.addEventListener('click', () => {
+    if (!vocalSelectedAudioPath) return;
+    vocalTranscribeBtnEl.click();
+  });
+}
+
+if (vocalAudioInputEl) {
+  vocalAudioInputEl.addEventListener('change', () => {
+    if (vocalAudioInputEl.files.length) {
+      vocalSelectedAudioPath = window.dash.getPathForFile(vocalAudioInputEl.files[0]);
+      vocalTestSongSelectEl.value = '';
+      vocalTestSongPlayRowEl.style.display = 'none';
+    }
+  });
+}
 
 if (vocalTranscribeBtnEl) {
   vocalTranscribeBtnEl.addEventListener('click', async () => {
-    if (!vocalAudioInputEl.files.length) {
+    if (!vocalSelectedAudioPath) {
       vocalTranscribeStatusEl.style.color = '#c4304a';
-      vocalTranscribeStatusEl.textContent = '✗ 先选择一个音频文件';
+      vocalTranscribeStatusEl.textContent = '✗ 先选一首内置测试歌曲，或者自己上传一个音频文件';
       return;
     }
 
-    const file = vocalAudioInputEl.files[0];
     vocalTranscribeBtnEl.disabled = true;
     vocalTranscribeStatusEl.style.color = '';
     vocalTranscribeStatusEl.textContent = '识歌中…（第一次需要下载 Whisper 模型，可能要几分钟）';
+    vocalTranscribeResultsEl.style.display = 'none';
 
     try {
-      // Save temp file and call transcribe
-      const tempPath = `/tmp/vocal-${Date.now()}-${file.name}`;
-      const arrayBuffer = await file.arrayBuffer();
-      // For electron app, we need a different approach - pass file path via dialog
-      const result = await window.dash.pickBackgroundImage(); // Placeholder - need proper file handling
+      const result = await window.dash.transcribeSinging(vocalSelectedAudioPath);
+      if (result.error) {
+        vocalTranscribeStatusEl.style.color = '#c4304a';
+        vocalTranscribeStatusEl.textContent = `✗ ${result.error}`;
+        return;
+      }
 
-      // For now, show error that file needs to be saved
-      vocalTranscribeStatusEl.style.color = '#c4304a';
-      vocalTranscribeStatusEl.textContent = '✗ 文件处理功能开发中（暂需手动指定音频路径）';
+      const lyricsText = result.lyrics?.text?.trim() || '';
+      vocalTranscribedLyricsEl.value = lyricsText || '（没有识别出歌词）';
+
+      const midiNotes = result.pitch?.midi_notes || [];
+      const voicedNotes = midiNotes.filter((n) => n != null).map((n) => Math.round(n));
+      vocalTranscribedPitchEl.textContent = voicedNotes.length
+        ? voicedNotes.join(' ')
+        : '（没有检测到有效音高）';
+
+      vocalTranscribeResultsEl.style.display = '';
+      vocalTranscribeStatusEl.style.color = '';
+      vocalTranscribeStatusEl.textContent = '✓ 识别完成';
     } catch (err) {
       vocalTranscribeStatusEl.style.color = '#c4304a';
       vocalTranscribeStatusEl.textContent = `✗ 出错: ${err.message}`;
@@ -223,6 +306,757 @@ if (vocalTranscribeBtnEl) {
     });
   }
 }
+
+// Vocal separation (人声分离): split the same selected/uploaded audio into
+// a vocals-only track and an instrumental-only backing track via Demucs.
+const vocalExtractBtnEl = document.getElementById('vocalExtractBtn');
+const vocalExtractStatusEl = document.getElementById('vocalExtractStatus');
+const vocalExtractResultsEl = document.getElementById('vocalExtractResults');
+const vocalExtractedVocalsAudioEl = document.getElementById('vocalExtractedVocalsAudio');
+const vocalExtractedInstrumentalAudioEl = document.getElementById('vocalExtractedInstrumentalAudio');
+// The voice-conversion step below needs a real file path (Demucs's own
+// output), not the file:// URL used just for the <audio> preview element.
+let lastExtractedVocalsPath = '';
+let lastExtractedInstrumentalPath = '';
+
+// 流程进度追踪和更新
+const vocalWorkflowSteps = ['vocalWorkflowStep1', 'vocalWorkflowStep2', 'vocalWorkflowStep3'];
+function updateVocalWorkflow() {
+  const steps = vocalWorkflowSteps.map(id => document.getElementById(id));
+  const voiceGenCompleteBtnEl = document.getElementById('voiceGenCompleteBtn');
+
+  // ①识歌：可选，不强制完成
+  if (vocalSelectedAudioPath) {
+    steps[0]?.classList.add('done');
+  } else {
+    steps[0]?.classList.remove('done');
+  }
+  // ②拆伴奏：有提取结果才算完成
+  if (lastExtractedVocalsPath && lastExtractedInstrumentalPath) {
+    steps[1]?.classList.add('done');
+  } else {
+    steps[1]?.classList.remove('done');
+  }
+  // ③换声：本次会话刚转换完，或者从"歌曲库"里选中了一条换声记录，都算有结果可用
+  const hasConvertResult = voiceConvertResultsEl && voiceConvertResultsEl.style.display !== 'none';
+  const hasSelectedFromLibrary = !!selectedConversionEntry;
+  if (hasConvertResult || hasSelectedFromLibrary) {
+    steps[2]?.classList.add('done');
+    if (voiceGenCompleteBtnEl) {
+      voiceGenCompleteBtnEl.style.display = '';
+    }
+  } else {
+    steps[2]?.classList.remove('done');
+    if (voiceGenCompleteBtnEl) {
+      voiceGenCompleteBtnEl.style.display = 'none';
+    }
+  }
+}
+
+if (vocalExtractBtnEl) {
+  vocalExtractBtnEl.addEventListener('click', async () => {
+    if (!vocalSelectedAudioPath) {
+      vocalExtractStatusEl.style.color = '#c4304a';
+      vocalExtractStatusEl.textContent = '✗ 先选一首内置测试歌曲，或者自己上传一个音频文件';
+      return;
+    }
+
+    vocalExtractBtnEl.disabled = true;
+    vocalExtractStatusEl.style.color = '';
+    vocalExtractResultsEl.style.display = 'none';
+
+    // Same reasoning as the 换声 timer below: this can run for several
+    // minutes on CPU (longer still on a first run, downloading the Demucs
+    // model), and a static message gives no way to tell "still working"
+    // from "stuck".
+    const extractStartedAt = Date.now();
+    const tickExtractStatus = () => {
+      const elapsed = Math.round((Date.now() - extractStartedAt) / 1000);
+      vocalExtractStatusEl.textContent = `分离中…（第一次需要下载 Demucs 模型，CPU 处理可能要几分钟，已用时 ${elapsed}s）`;
+    };
+    tickExtractStatus();
+    const extractTimer = setInterval(tickExtractStatus, 1000);
+
+    try {
+      const result = await window.dash.extractInstrumental(vocalSelectedAudioPath);
+      if (result.error) {
+        vocalExtractStatusEl.style.color = '#c4304a';
+        vocalExtractStatusEl.textContent = `✗ ${result.error}`;
+        return;
+      }
+
+      vocalExtractedVocalsAudioEl.src = result.vocalsUrl || '';
+      vocalExtractedInstrumentalAudioEl.src = result.instrumentalUrl || '';
+      lastExtractedVocalsPath = result.vocals || '';
+      lastExtractedInstrumentalPath = result.instrumental || '';
+      vocalExtractResultsEl.style.display = '';
+      vocalExtractStatusEl.style.color = '';
+      const totalSeconds = Math.round((Date.now() - extractStartedAt) / 1000);
+      vocalExtractStatusEl.textContent = `✓ 分离完成（用时 ${totalSeconds}s）`;
+      updateVocalWorkflow();
+      loadVocalHistory();
+    } catch (err) {
+      vocalExtractStatusEl.style.color = '#c4304a';
+      vocalExtractStatusEl.textContent = `✗ 出错: ${err.message}`;
+    } finally {
+      clearInterval(extractTimer);
+      vocalExtractBtnEl.disabled = false;
+    }
+  });
+}
+
+// Voice conversion (换声) -- deliberately generic on which model file is
+// picked (see dashboard:pick-voice-model / dashboard:convert-voice in
+// main.js): this UI never hardcodes a voice, just points at whatever .pth
+// the user has downloaded or trained, so trying a different voice is a
+// re-pick, not a code change.
+const pickVoiceModelBtnEl = document.getElementById('pickVoiceModelBtn');
+const voiceModelPathDisplayEl = document.getElementById('voiceModelPathDisplay');
+const voicePitchShiftEl = document.getElementById('voicePitchShift');
+const voiceIndexRateRowEl = document.getElementById('voiceIndexRateRow');
+const voiceIndexRateEl = document.getElementById('voiceIndexRate');
+const voiceIndexRateValueEl = document.getElementById('voiceIndexRateValue');
+const voiceConvertBtnEl = document.getElementById('voiceConvertBtn');
+const voiceConvertStatusEl = document.getElementById('voiceConvertStatus');
+const voiceConvertResultsEl = document.getElementById('voiceConvertResults');
+const voiceConvertedAudioEl = document.getElementById('voiceConvertedAudio');
+const voiceGenCompleteBtnEl = document.getElementById('voiceGenCompleteBtn');
+const voiceCompleteAudioSectionEl = document.getElementById('voiceCompleteAudioSection');
+const voiceCompleteAudioEl = document.getElementById('voiceCompleteAudio');
+const voiceEnhanceBtnEl = document.getElementById('voiceEnhanceBtn');
+const voiceEnhanceStrengthEl = document.getElementById('voiceEnhanceStrength');
+const voiceEnhanceStrengthValueEl = document.getElementById('voiceEnhanceStrengthValue');
+const voiceEnhanceStatusEl = document.getElementById('voiceEnhanceStatus');
+let lastConvertedVocalsPath = '';
+const voiceModelCardGridEl = document.getElementById('voiceModelCardGrid');
+const voiceModelSaveRowEl = document.getElementById('voiceModelSaveRow');
+const voiceModelSaveNameEl = document.getElementById('voiceModelSaveName');
+const voiceModelSaveBtnEl = document.getElementById('voiceModelSaveBtn');
+let selectedVoiceModelPath = '';
+let selectedVoiceIndexPath = '';
+let selectedSavedVoiceModelId = '';
+let savedVoiceModels = [];
+let defaultVoiceModelId = '';
+
+function basenameOf(p) {
+  return String(p ?? '').split(/[\\/]/).pop();
+}
+
+// hf-rvc has no faiss dependency at all -- .index-based retrieval only
+// exists because tools/voice-convert.py loads it separately (see
+// _retrieve_blend), so the rate slider is meaningless with no .index
+// selected and stays hidden rather than sitting there doing nothing.
+function updateIndexRateVisibility() {
+  if (voiceIndexRateRowEl) voiceIndexRateRowEl.style.display = selectedVoiceIndexPath ? '' : 'none';
+}
+
+if (voiceIndexRateEl && voiceIndexRateValueEl) {
+  voiceIndexRateEl.addEventListener('input', () => {
+    voiceIndexRateValueEl.textContent = Number(voiceIndexRateEl.value).toFixed(2);
+  });
+}
+
+function selectSavedVoiceModel(id) {
+  const model = savedVoiceModels.find((m) => m.id === id);
+  if (!model) return;
+  selectedSavedVoiceModelId = id;
+  selectedVoiceModelPath = model.modelPath;
+  selectedVoiceIndexPath = model.indexPath || '';
+  voiceModelPathDisplayEl.value = model.modelPath;
+  voiceModelSaveRowEl.style.display = 'none'; // already-saved model doesn't need re-saving
+  updateIndexRateVisibility();
+  renderSavedVoiceModels();
+}
+
+// Card grid, not a <select> -- clicking anywhere on a card selects it
+// (matches the .pet-card pattern used for character packs); the three
+// per-card buttons stopPropagation so clicking them doesn't *also* select
+// the card underneath.
+function renderSavedVoiceModels() {
+  if (!voiceModelCardGridEl) return;
+  voiceModelCardGridEl.replaceChildren();
+  if (!savedVoiceModels.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.style.margin = '0';
+    empty.textContent = '还没保存过音色——下面选一个 .pth 文件，转换成功后会提示保存';
+    voiceModelCardGridEl.appendChild(empty);
+    return;
+  }
+  for (const m of savedVoiceModels) {
+    const isDefault = m.id === defaultVoiceModelId;
+    const card = document.createElement('div');
+    card.className = 'card voice-card' + (m.id === selectedSavedVoiceModelId ? ' selected' : '');
+    card.innerHTML =
+      `<div class="voice-name">${escapeHtml(m.name)}${isDefault ? ' ⭐' : ''}</div>` +
+      `<div class="voice-path">${escapeHtml(basenameOf(m.modelPath))}</div>` +
+      (m.indexPath ? '<div class="voice-badges"><span class="voice-badge">含 .index</span></div>' : '');
+    card.addEventListener('click', () => selectSavedVoiceModel(m.id));
+
+    const actions = document.createElement('div');
+    actions.className = 'voice-actions';
+
+    const defaultBtn = document.createElement('button');
+    defaultBtn.className = 'btn';
+    defaultBtn.textContent = isDefault ? '已是默认' : '设为默认';
+    defaultBtn.disabled = isDefault;
+    defaultBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const result = await window.dash.setDefaultVoiceModel(m.id);
+      if (result.ok) {
+        defaultVoiceModelId = result.defaultVoiceModelId;
+        renderSavedVoiceModels();
+      }
+    });
+    actions.appendChild(defaultBtn);
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'btn';
+    renameBtn.textContent = '重命名';
+    renameBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const name = prompt('给这个音色改个名字', m.name);
+      if (name === null) return; // cancelled
+      const result = await window.dash.renameVoiceModel(m.id, name);
+      if (result.ok) {
+        savedVoiceModels = result.voiceModels;
+        renderSavedVoiceModels();
+      } else {
+        alert(result.error || '重命名失败');
+      }
+    });
+    actions.appendChild(renameBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn';
+    deleteBtn.textContent = '删除';
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`删除音色「${m.name}」？（不会删掉原始 .pth 文件，只是从列表移除）`)) return;
+      const result = await window.dash.deleteVoiceModel(m.id);
+      if (result.ok) {
+        savedVoiceModels = result.voiceModels;
+        defaultVoiceModelId = result.defaultVoiceModelId;
+        if (selectedSavedVoiceModelId === m.id) selectedSavedVoiceModelId = '';
+        renderSavedVoiceModels();
+      }
+    });
+    actions.appendChild(deleteBtn);
+
+    card.appendChild(actions);
+    voiceModelCardGridEl.appendChild(card);
+  }
+}
+
+async function loadSavedVoiceModels() {
+  const data = await window.dash.getData();
+  savedVoiceModels = data.settings?.voiceModels ?? [];
+  defaultVoiceModelId = data.settings?.defaultVoiceModelId ?? '';
+  // Auto-select the default model on load so换声 is one click, not a
+  // re-browse every time the dashboard reopens.
+  const def = savedVoiceModels.find((m) => m.id === defaultVoiceModelId);
+  if (def) {
+    selectedSavedVoiceModelId = def.id;
+    selectedVoiceModelPath = def.modelPath;
+    selectedVoiceIndexPath = def.indexPath || '';
+    voiceModelPathDisplayEl.value = def.modelPath;
+    updateIndexRateVisibility();
+  }
+  renderSavedVoiceModels();
+}
+if (voiceModelCardGridEl) loadSavedVoiceModels();
+
+if (voiceModelSaveBtnEl) {
+  voiceModelSaveBtnEl.addEventListener('click', async () => {
+    const name = voiceModelSaveNameEl.value.trim();
+    if (!name) return;
+    if (!selectedVoiceModelPath) return;
+    try {
+      const result = await window.dash.saveVoiceModel({ name, modelPath: selectedVoiceModelPath, indexPath: selectedVoiceIndexPath });
+      if (result.ok) {
+        savedVoiceModels = result.voiceModels;
+        defaultVoiceModelId = result.defaultVoiceModelId;
+        selectedSavedVoiceModelId = result.id;
+        renderSavedVoiceModels();
+        voiceModelSaveRowEl.style.display = 'none';
+        voiceModelSaveNameEl.value = '';
+      } else {
+        alert(result.error || '保存失败');
+      }
+    } catch (err) {
+      // window.dash.saveVoiceModel is registered by a main.js change that
+      // only takes effect after a full app restart (not a window reload) --
+      // without this catch, an unregistered handler throws silently here
+      // and the click looks like it did nothing at all.
+      alert('保存失败，可能是应用还没完全重启：' + err.message);
+    }
+  });
+}
+
+if (voiceGenCompleteBtnEl) {
+  voiceGenCompleteBtnEl.addEventListener('click', async () => {
+    // 优先使用从库里选中的换声记录，没选就用最后生成的
+    let vocalsPath, instrumentalPath;
+
+    if (selectedConversionEntry) {
+      vocalsPath = selectedConversionEntry.outputPath;
+      // 换声记录自带的伴奏优先；没有（老记录）就用手动补选的那条伴奏轨
+      instrumentalPath = selectedConversionEntry.instrumentalPath || selectedInstrumentalEntry?.instrumentalPath;
+    } else {
+      vocalsPath = lastConvertedVocalsPath;
+      instrumentalPath = selectedInstrumentalEntry?.instrumentalPath || lastExtractedInstrumentalPath;
+    }
+
+    if (!vocalsPath || !instrumentalPath) {
+      alert('缺少必要的人声或伴奏文件。\n请从下面"🎵 歌曲库"中选一条换声记录（如果它没自带伴奏，还需额外选一条"分离"记录的伴奏轨），或者直接完成上面的③换声步骤');
+      return;
+    }
+    voiceGenCompleteBtnEl.disabled = true;
+    voiceGenCompleteBtnEl.textContent = '生成中…';
+    try {
+      const result = await window.dash.mixTracks({
+        vocalsPath,
+        instrumentalPath,
+      });
+      if (result.error) {
+        alert(`生成失败: ${result.error}`);
+        return;
+      }
+      voiceCompleteAudioEl.src = result.outputUrl || '';
+      voiceCompleteAudioSectionEl.style.display = '';
+      // 清空选中状态（混音成功后）
+      selectedConversionEntry = null;
+      selectedInstrumentalEntry = null;
+      loadVocalHistory(); // 刷新卡片UI
+    } catch (err) {
+      alert(`生成出错: ${err.message}`);
+    } finally {
+      voiceGenCompleteBtnEl.disabled = false;
+      voiceGenCompleteBtnEl.textContent = '✨ 一键生成完整翻唱';
+    }
+  });
+}
+
+if (voiceEnhanceStrengthEl && voiceEnhanceStrengthValueEl) {
+  voiceEnhanceStrengthEl.addEventListener('input', () => {
+    voiceEnhanceStrengthValueEl.textContent = Number(voiceEnhanceStrengthEl.value).toFixed(1);
+  });
+}
+
+if (voiceEnhanceBtnEl) {
+  voiceEnhanceBtnEl.addEventListener('click', async () => {
+    if (!lastConvertedVocalsPath) {
+      alert('先完成上面③「换声」，才有人声可以增强');
+      return;
+    }
+    voiceEnhanceBtnEl.disabled = true;
+    voiceEnhanceBtnEl.textContent = '处理中…';
+    voiceEnhanceStatusEl.textContent = '';
+    try {
+      const result = await window.dash.enhanceVocal({
+        inputPath: lastConvertedVocalsPath,
+        strength: Number(voiceEnhanceStrengthEl.value) || 0.6,
+      });
+      if (result.error) {
+        voiceEnhanceStatusEl.style.color = '#c4304a';
+        voiceEnhanceStatusEl.textContent = `✗ ${result.error}`;
+        return;
+      }
+      // 增强结果替换主播放器里播放的内容，方便直接对比听感；原始版本仍保留在歌曲库里
+      voiceConvertedAudioEl.src = result.outputUrl || '';
+      lastConvertedVocalsPath = result.output || lastConvertedVocalsPath;
+      voiceEnhanceStatusEl.style.color = '';
+      voiceEnhanceStatusEl.textContent = '✓ 已增强，播放器已更新为增强版';
+      loadVocalHistory();
+    } catch (err) {
+      voiceEnhanceStatusEl.style.color = '#c4304a';
+      voiceEnhanceStatusEl.textContent = `✗ 出错: ${err.message}`;
+    } finally {
+      voiceEnhanceBtnEl.disabled = false;
+      voiceEnhanceBtnEl.textContent = '🪄 清晰度增强';
+    }
+  });
+}
+
+if (pickVoiceModelBtnEl) {
+  pickVoiceModelBtnEl.addEventListener('click', async () => {
+    const result = await window.dash.pickVoiceModel();
+    if (!result.ok) return;
+    selectedVoiceModelPath = result.modelPath;
+    selectedVoiceIndexPath = result.indexPath || '';
+    selectedSavedVoiceModelId = ''; // a freshly-picked file isn't any saved card
+    voiceModelPathDisplayEl.value = result.modelPath;
+    // Only offer to save a freshly-picked file -- one already loaded from
+    // the saved library doesn't need re-saving.
+    voiceModelSaveRowEl.style.display = '';
+    updateIndexRateVisibility();
+    renderSavedVoiceModels();
+  });
+}
+
+if (voiceConvertBtnEl) {
+  voiceConvertBtnEl.addEventListener('click', async () => {
+    if (!lastExtractedVocalsPath) {
+      voiceConvertStatusEl.style.color = '#c4304a';
+      voiceConvertStatusEl.textContent = '✗ 先做上面②「拆出人声与伴奏」，或去下面"🎵 歌曲库"里点一条分离记录的"用这条轨换声"';
+      return;
+    }
+    if (!selectedVoiceModelPath) {
+      voiceConvertStatusEl.style.color = '#c4304a';
+      voiceConvertStatusEl.textContent = '✗ 先选一个 RVC 模型文件（.pth）';
+      return;
+    }
+
+    voiceConvertBtnEl.disabled = true;
+    voiceConvertStatusEl.style.color = '';
+    voiceConvertResultsEl.style.display = 'none';
+
+    // A bad noise draw inside the vocoder (see tools/voice-convert.py's
+    // retry loop) occasionally costs a few extra inference passes, so
+    // total time isn't fixed run to run -- a static "请耐心等待" gives no
+    // signal that it's still alive versus stuck. A ticking elapsed counter
+    // costs nothing and answers "is this still working?" at a glance.
+    const convertStartedAt = Date.now();
+    const tickConvertStatus = () => {
+      const elapsed = Math.round((Date.now() - convertStartedAt) / 1000);
+      voiceConvertStatusEl.textContent = `换声中…（CPU 推理，已用时 ${elapsed}s）`;
+    };
+    tickConvertStatus();
+    const convertTimer = setInterval(tickConvertStatus, 1000);
+
+    try {
+      const result = await window.dash.convertVoice({
+        audioPath: lastExtractedVocalsPath,
+        modelPath: selectedVoiceModelPath,
+        indexPath: selectedVoiceIndexPath,
+        pitchShift: Number(voicePitchShiftEl.value) || 0,
+        indexRate: selectedVoiceIndexPath ? Number(voiceIndexRateEl.value) : undefined,
+        instrumentalPath: lastExtractedInstrumentalPath, // 用于记录此换声对应的伴奏
+      });
+      if (result.error) {
+        voiceConvertStatusEl.style.color = '#c4304a';
+        voiceConvertStatusEl.textContent = `✗ ${result.error}`;
+        return;
+      }
+
+      voiceConvertedAudioEl.src = result.outputUrl || '';
+      lastConvertedVocalsPath = result.output || '';
+      voiceCompleteAudioSectionEl.style.display = 'none';
+      voiceConvertResultsEl.style.display = '';
+      voiceConvertStatusEl.style.color = '';
+      const totalSeconds = Math.round((Date.now() - convertStartedAt) / 1000);
+      voiceConvertStatusEl.textContent = `✓ 换声完成（用时 ${totalSeconds}s）`;
+      updateVocalWorkflow();
+      loadVocalHistory();
+    } catch (err) {
+      voiceConvertStatusEl.style.color = '#c4304a';
+      voiceConvertStatusEl.textContent = `✗ 出错: ${err.message}`;
+    } finally {
+      clearInterval(convertTimer);
+      voiceConvertBtnEl.disabled = false;
+    }
+  });
+}
+
+// 生成记录 (生成历史) -- past separations/conversions, so replaying one is
+// a click on an already-rendered <audio> instead of re-running Demucs/RVC.
+const vocalHistoryListEl = document.getElementById('vocalHistoryList');
+
+// 歌曲库中选中的换声记录（用于一键生成混音）
+let selectedConversionEntry = null;
+// 补充选项：旧的换声记录没存自己的伴奏路径，允许手动指定一条"分离"记录的伴奏来配对
+let selectedInstrumentalEntry = null;
+
+function vocalHistoryRow(entry) {
+  const card = document.createElement('div');
+  card.className = 'card song-card';
+  card.id = `vocal-history-${entry.id}`;
+
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.marginBottom = '6px';
+
+  const title = document.createElement('div');
+  title.className = 'song-title';
+  if (entry.type === 'separation') {
+    title.textContent = `🎚️ 分离 · ${entry.sourceName ?? ''}`;
+  } else if (entry.type === 'mix') {
+    title.textContent = '✨ 完整翻唱（人声+伴奏）';
+  } else if (entry.type === 'enhance') {
+    title.textContent = `🪄 清晰度增强（强度${entry.strength ?? 0.6}）`;
+  } else {
+    title.textContent = `🎙️ 换声 · ${entry.modelName ?? ''}${entry.pitchShift ? ` (变调${entry.pitchShift > 0 ? '+' : ''}${entry.pitchShift})` : ''}${entry.indexPath ? ` (相似度${entry.indexRate ?? 0.75})` : ''}`;
+  }
+  header.appendChild(title);
+
+  // 类型标签
+  const typeTagText = { separation: '伴奏', conversion: '人声', mix: '成品', enhance: '增强' }[entry.type] ?? entry.type;
+  const typeTagColor = { separation: 'rgba(100, 150, 200, 0.4)', conversion: 'rgba(150, 100, 200, 0.4)', mix: 'rgba(100, 200, 100, 0.4)', enhance: 'rgba(230, 180, 60, 0.4)' }[entry.type] ?? 'rgba(150, 150, 150, 0.4)';
+  const typeTag = document.createElement('div');
+  typeTag.style.fontSize = '12px';
+  typeTag.style.padding = '2px 8px';
+  typeTag.style.borderRadius = '4px';
+  typeTag.style.backgroundColor = typeTagColor;
+  typeTag.style.color = 'var(--theme-text)';
+  typeTag.textContent = typeTagText;
+  header.appendChild(typeTag);
+
+  card.appendChild(header);
+
+  if (entry.createdAt) {
+    const time = document.createElement('div');
+    time.className = 'song-time';
+    time.textContent = new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false });
+    card.appendChild(time);
+  }
+
+  if (entry.type === 'separation') {
+    const vocalsRow = document.createElement('div');
+    vocalsRow.style.display = 'flex';
+    vocalsRow.style.justifyContent = 'space-between';
+    vocalsRow.style.alignItems = 'center';
+    const vocalsLabel = document.createElement('div');
+    vocalsLabel.style.fontSize = '11px';
+    vocalsLabel.style.opacity = '0.7';
+    vocalsLabel.textContent = '人声轨（原唱）';
+    vocalsRow.appendChild(vocalsLabel);
+
+    const useForConvertBtn = document.createElement('button');
+    useForConvertBtn.className = 'btn';
+    useForConvertBtn.textContent = lastExtractedVocalsPath === entry.vocalsPath ? '✓ 已选中' : '用这条轨换声';
+    useForConvertBtn.title = '把这条人声轨设为③换声的输入，不用重新跑一次②拆分离';
+    useForConvertBtn.style.fontSize = '12px';
+    useForConvertBtn.style.padding = '2px 8px';
+    if (lastExtractedVocalsPath === entry.vocalsPath) {
+      useForConvertBtn.style.backgroundColor = 'rgba(100, 200, 100, 0.5)';
+    }
+    useForConvertBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      lastExtractedVocalsPath = entry.vocalsPath || '';
+      lastExtractedInstrumentalPath = entry.instrumentalPath || '';
+      updateVocalWorkflow();
+      loadVocalHistory();
+      voiceConvertBtnEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    vocalsRow.appendChild(useForConvertBtn);
+    card.appendChild(vocalsRow);
+
+    const vocalsAudio = document.createElement('audio');
+    vocalsAudio.controls = true;
+    vocalsAudio.src = entry.vocalsUrl;
+    card.appendChild(vocalsAudio);
+
+    const instRow = document.createElement('div');
+    instRow.style.display = 'flex';
+    instRow.style.justifyContent = 'space-between';
+    instRow.style.alignItems = 'center';
+    instRow.style.marginTop = '6px';
+    const instLabel = document.createElement('div');
+    instLabel.style.fontSize = '11px';
+    instLabel.style.opacity = '0.7';
+    instLabel.textContent = '伴奏轨';
+    instRow.appendChild(instLabel);
+
+    const selectInstBtn = document.createElement('button');
+    selectInstBtn.className = 'btn';
+    selectInstBtn.textContent = selectedInstrumentalEntry?.id === entry.id ? '✓ 已选中' : '用这条伴奏';
+    selectInstBtn.style.fontSize = '12px';
+    selectInstBtn.style.padding = '2px 8px';
+    if (selectedInstrumentalEntry?.id === entry.id) {
+      selectInstBtn.style.backgroundColor = 'rgba(100, 200, 100, 0.5)';
+    }
+    selectInstBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedInstrumentalEntry = entry;
+      loadVocalHistory();
+    });
+    instRow.appendChild(selectInstBtn);
+    card.appendChild(instRow);
+
+    const instAudio = document.createElement('audio');
+    instAudio.controls = true;
+    instAudio.src = entry.instrumentalUrl;
+    card.appendChild(instAudio);
+  } else {
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.src = entry.outputUrl;
+    card.appendChild(audio);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'song-actions';
+
+  if (entry.type === 'conversion' || entry.type === 'enhance') {
+    const selectBtn = document.createElement('button');
+    selectBtn.className = 'btn';
+    selectBtn.textContent = '✓ 选择此版本';
+    selectBtn.style.fontSize = '12px';
+    selectBtn.style.padding = '4px 8px';
+
+    selectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedConversionEntry = entry;
+      // 只有这条记录自带伴奏时才清空手动选的伴奏（避免张冠李戴）；
+      // 没自带伴奏的话，用户之前手动选的伴奏应该继续保留，不能白选
+      if (entry.instrumentalPath) {
+        selectedInstrumentalEntry = null;
+      }
+      // 更新所有卡片的样式
+      loadVocalHistory();
+      // 让"一键生成完整翻唱"按钮立即显示出来，不用等再做一次③换声
+      updateVocalWorkflow();
+    });
+
+    actions.appendChild(selectBtn);
+
+    // 老记录没存自带伴奏路径，提示需要额外从下面选一条"分离"记录的伴奏
+    if (!entry.instrumentalPath) {
+      const hint = document.createElement('div');
+      hint.style.fontSize = '11px';
+      hint.style.color = 'rgba(255, 180, 100, 0.9)';
+      hint.style.marginTop = '4px';
+      hint.textContent = '⚠ 这条记录没存伴奏，选它后还需在下面选一条"分离"记录的伴奏';
+      card.appendChild(hint);
+    }
+  }
+
+
+  if (entry.type === 'conversion') {
+    const replayBtn = document.createElement('button');
+    replayBtn.className = 'btn';
+    replayBtn.textContent = '🔁 再唱一次';
+    replayBtn.title = '参数完全不变，重新生成一遍（RVC 每次推理带随机噪声，音质会有细微差异，适合抽卡）';
+    replayBtn.style.fontSize = '12px';
+    replayBtn.style.padding = '4px 8px';
+    replayBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      replayBtn.disabled = true;
+      replayBtn.textContent = '生成中…';
+      const result = await window.dash.replayVocalHistoryEntry(entry.id);
+      replayBtn.disabled = false;
+      replayBtn.textContent = '🔁 再唱一次';
+      if (result.error) {
+        alert(result.error);
+        return;
+      }
+      loadVocalHistory();
+    });
+    actions.appendChild(replayBtn);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn';
+    editBtn.textContent = '⚙️ 调整参数重唱';
+    editBtn.title = '把这条记录的模型/变调/相似度填到上面③换声面板，你可以先改参数再自己点换声';
+    editBtn.style.fontSize = '12px';
+    editBtn.style.padding = '4px 8px';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      lastExtractedVocalsPath = entry.sourcePath || '';
+      if (entry.instrumentalPath) lastExtractedInstrumentalPath = entry.instrumentalPath;
+      selectedVoiceModelPath = entry.modelPath || '';
+      selectedVoiceIndexPath = entry.indexPath || '';
+      voiceModelPathDisplayEl.value = entry.modelPath || '';
+      voicePitchShiftEl.value = entry.pitchShift || 0;
+      if (entry.indexPath && voiceIndexRateEl) {
+        voiceIndexRateEl.value = entry.indexRate ?? 0.75;
+        voiceIndexRateValueEl.textContent = Number(voiceIndexRateEl.value).toFixed(2);
+      }
+      // 如果这个模型正好是已保存的音色卡片之一，同步高亮它
+      const matched = savedVoiceModels.find((m) => m.modelPath === entry.modelPath);
+      selectedSavedVoiceModelId = matched ? matched.id : '';
+      voiceModelSaveRowEl.style.display = matched ? 'none' : '';
+      updateIndexRateVisibility();
+      renderSavedVoiceModels();
+      updateVocalWorkflow();
+      voiceConvertBtnEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    actions.appendChild(editBtn);
+  }
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'btn';
+  deleteBtn.textContent = '删除记录';
+  deleteBtn.style.fontSize = '12px';
+  deleteBtn.style.padding = '4px 8px';
+  deleteBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await window.dash.deleteVocalHistoryEntry(entry.id);
+    loadVocalHistory();
+  });
+  actions.appendChild(deleteBtn);
+  card.appendChild(actions);
+
+  // 显示选中状态
+  const isSelected =
+    (entry.type === 'conversion' && selectedConversionEntry?.id === entry.id) ||
+    (entry.type === 'separation' && selectedInstrumentalEntry?.id === entry.id);
+  if (isSelected) {
+    card.style.borderWidth = '2px';
+    card.style.borderColor = 'rgba(100, 200, 100, 0.8)';
+    card.style.backgroundColor = 'rgba(100, 200, 100, 0.1)';
+  }
+
+  return card;
+}
+
+const vocalHistoryFilterRowEl = document.getElementById('vocalHistoryFilterRow');
+const VOCAL_HISTORY_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'separation', label: '🎚️ 伴奏' },
+  { key: 'conversion', label: '🎙️ 人声' },
+  { key: 'enhance', label: '🪄 增强' },
+  { key: 'mix', label: '✨ 成品' },
+];
+let vocalHistoryFilter = 'all';
+let vocalHistoryCache = [];
+
+function renderVocalHistoryFilterRow() {
+  if (!vocalHistoryFilterRowEl) return;
+  vocalHistoryFilterRowEl.replaceChildren();
+  for (const f of VOCAL_HISTORY_FILTERS) {
+    const count = f.key === 'all' ? vocalHistoryCache.length : vocalHistoryCache.filter((h) => h.type === f.key).length;
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (vocalHistoryFilter === f.key ? ' active' : '');
+    btn.textContent = `${f.label} (${count})`;
+    btn.style.fontSize = '12px';
+    btn.style.padding = '4px 10px';
+    btn.addEventListener('click', () => {
+      vocalHistoryFilter = f.key;
+      renderVocalHistoryList();
+    });
+    vocalHistoryFilterRowEl.appendChild(btn);
+  }
+}
+
+function renderVocalHistoryList() {
+  if (!vocalHistoryListEl) return;
+  renderVocalHistoryFilterRow();
+  const filtered = vocalHistoryFilter === 'all'
+    ? vocalHistoryCache
+    : vocalHistoryCache.filter((h) => h.type === vocalHistoryFilter);
+  vocalHistoryListEl.replaceChildren();
+  if (!filtered.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.style.margin = '0';
+    empty.textContent = vocalHistoryCache.length
+      ? '这个分类下还没有记录'
+      : '还没有生成记录——分离一次伴奏，或者换一次声，就会出现在这里';
+    vocalHistoryListEl.appendChild(empty);
+    return;
+  }
+  for (const entry of filtered) vocalHistoryListEl.appendChild(vocalHistoryRow(entry));
+}
+
+async function loadVocalHistory() {
+  if (!vocalHistoryListEl) return;
+  vocalHistoryCache = await window.dash.listVocalHistory();
+  renderVocalHistoryList();
+}
+if (vocalHistoryListEl) loadVocalHistory();
 
 for (const btn of navBtns) btn.addEventListener('click', () => showSection(btn.dataset.section));
 
@@ -726,9 +1560,8 @@ const vocabularyFallback = {
   '番茄钟完成': 'Pomodoro Complete',
   '任务需要你 / 出错': 'Task Alert / Error',
   '摸它 / 手势': 'Pet Interaction / Gesture',
-  '🎤 唱歌': '🎤 Singing',
-  '用 MiMo 云端语音的"唱歌模式"合成——跟平时说话走同一个 API，只是歌词前面自动加了唱歌标签，不需要额外配置，需要先在「语音与聊天」页填好 MiMo API Key。': 'Uses MiMo Cloud "singing mode" - same API as voice chat, auto-adds singing tags to lyrics, requires MiMo API Key.',
-  '歌词': 'Lyrics',
+  '🎼 原创演唱 · 文字直接转唱': '🎼 Original Singing · Text to Song',
+  '最快出效果的路径——不需要准备任何歌曲文件，填词就能唱。': 'The fastest path -- no song file needed, just enter lyrics and sing.',
   '输入想让角色唱的歌词（中文/英文均可，中文效果通常更好）': 'Enter lyrics for the character to sing (Chinese/English; Chinese usually sounds better)',
   '跟随语音设置里配置的默认音色': 'Follows default voice from voice settings',
   '🎵 唱一下': '🎵 Sing Now',
@@ -1081,103 +1914,6 @@ if (uiLanguageSelectEl) {
       uiLanguageSelectEl.value = data.settings.uiLanguage;
       applyUILanguage(data.settings.uiLanguage);
     }
-
-    // Auto-test bilingual switching on startup
-    setTimeout(() => {
-      const testLang = 'en';
-      console.log('🧪 [Auto-Test] Starting comprehensive bilingual switch test to:', testLang);
-
-      // Switch to English
-      uiLanguageSelectEl.value = testLang;
-      applyUILanguage(testLang);
-
-      // Comprehensive verification - check all elements for Chinese text
-      setTimeout(() => {
-        console.log('🔍 [Auto-Test] Checking for untranslated Chinese text...');
-
-        const chineseRegex = /[一-鿿]/g;
-        const untranslatedElements = [];
-
-        // Scan all elements
-        const allElements = document.querySelectorAll('*');
-        for (const el of allElements) {
-          if (['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD'].includes(el.tagName)) continue;
-
-          // Check text content
-          if (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) {
-            const text = el.textContent.trim();
-            if (text && chineseRegex.test(text)) {
-              untranslatedElements.push({
-                type: 'textContent',
-                element: el.tagName,
-                text: text.substring(0, 50),
-                id: el.id,
-                class: el.className
-              });
-            }
-          }
-
-          // Check attributes
-          ['placeholder', 'title', 'value'].forEach(attr => {
-            const val = el.getAttribute(attr);
-            if (val && chineseRegex.test(val)) {
-              untranslatedElements.push({
-                type: attr,
-                element: el.tagName,
-                text: val.substring(0, 50),
-                id: el.id
-              });
-            }
-          });
-        }
-
-        if (untranslatedElements.length === 0) {
-          console.log('✅ [Auto-Test] SUCCESS! No Chinese text found. Bilingual switching is COMPLETE.');
-          console.log('✅ All UI elements properly translated to English.');
-        } else {
-          console.log(`⚠️ [Auto-Test] Found ${untranslatedElements.length} untranslated elements:`);
-          untranslatedElements.slice(0, 10).forEach((el, i) => {
-            console.log(`  ${i+1}. [${el.type}] ${el.element} - "${el.text}"`);
-          });
-        }
-
-        const testCases = [
-          { zh: '配色方案', en: 'Color Scheme' },
-          { zh: '语音输出音量', en: 'Voice Volume' },
-          { zh: '聊天模型提供商', en: 'Chat Provider' },
-          { zh: '口头禅（每行一句）', en: 'Catchphrases (One per Line)' }
-        ];
-
-        let passed = 0;
-        let failed = 0;
-
-        const allLabels = document.querySelectorAll('label');
-        for (const test of testCases) {
-          let found = false;
-          for (const label of allLabels) {
-            const stored = label.getAttribute('data-i18n-zh') || label.textContent.trim();
-            if (stored === test.zh) {
-              if (label.textContent === test.en) {
-                console.log(`✅ "${test.zh}" → "${test.en}"`);
-                passed++;
-              } else {
-                console.log(`❌ "${test.zh}" expected "${test.en}" but got "${label.textContent}"`);
-                failed++;
-              }
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            console.log(`❌ Label not found: "${test.zh}"`);
-            failed++;
-          }
-        }
-
-        console.log(`🧪 [Auto-Test Result] Passed: ${passed}/${testCases.length}, Failed: ${failed}`);
-        console.log(`🧪 [Status] ${failed === 0 ? '✅ 双语切换正常工作' : '❌ 双语切换有问题'}`);
-      }, 500);
-    }, 1000);
   }).catch(err => console.error('Failed to load UI language setting:', err));
 }
 
@@ -3510,6 +4246,7 @@ const ACTION_MAPPING_STATUSES = [
   { key: 'review', label: '只是在看（review）' },
   { key: 'waiting', label: '等你批准（waiting）' },
   { key: 'error', label: '出错了（error）' },
+  { key: 'celebrate', label: '任务完成（celebrate）' },
 ];
 const actionMappingListEl = document.getElementById('actionMappingList');
 
