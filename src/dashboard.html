@@ -1229,7 +1229,13 @@
     </div>
 
     <div class="panel-block">
-      <h3>🎵 歌曲库</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="margin:0;">🎵 歌曲库</h3>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" id="vocalLibrarySelectModeBtn" style="font-size:12px; padding:4px 12px;">📋 选择模式</button>
+          <button class="btn primary" id="vocalLibraryGenerateBtn" style="display:none; font-size:12px; padding:4px 12px; font-weight:600;">✨ 生成</button>
+        </div>
+      </div>
       <p class="hint" style="margin-top:0;">按歌曲分组管理所有生成的素材——分离轨、各个音色版本、混音成品、增强版本。点歌曲名展开看详情，选"用这条换声"可复用同一份分离素材配合不同参数重新生成。</p>
       <div id="vocalHistoryFilterRow" style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;"></div>
       <div id="vocalHistoryBySong" style="display:flex; flex-direction:column; gap:8px;"></div>

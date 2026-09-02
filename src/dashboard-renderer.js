@@ -781,6 +781,23 @@ function vocalHistoryRow(entry) {
   card.className = 'card song-card';
   card.id = `vocal-history-${entry.id}`;
 
+  // Selection checkbox (only in select mode)
+  if (vocalLibrarySelectMode && (entry.type === 'conversion' || entry.type === 'separation')) {
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = vocalLibrarySelected.has(entry.id);
+    checkbox.style.marginBottom = '8px';
+    checkbox.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        vocalLibrarySelected.add(entry.id);
+      } else {
+        vocalLibrarySelected.delete(entry.id);
+      }
+      updateVocalLibraryGenerateBtn();
+    });
+    card.appendChild(checkbox);
+  }
+
   const header = document.createElement('div');
   header.style.display = 'flex';
   header.style.justifyContent = 'space-between';
@@ -1012,6 +1029,8 @@ function vocalHistoryRow(entry) {
 }
 
 const vocalHistoryFilterRowEl = document.getElementById('vocalHistoryFilterRow');
+const vocalLibrarySelectModeBtnEl = document.getElementById('vocalLibrarySelectModeBtn');
+const vocalLibraryGenerateBtnEl = document.getElementById('vocalLibraryGenerateBtn');
 const VOCAL_HISTORY_FILTERS = [
   { key: 'all', label: '全部' },
   { key: 'separation', label: '🎚️ 伴奏' },
@@ -1021,6 +1040,8 @@ const VOCAL_HISTORY_FILTERS = [
 ];
 let vocalHistoryFilter = 'all';
 let vocalHistoryCache = [];
+let vocalLibrarySelectMode = false;
+const vocalLibrarySelected = new Set();
 
 function renderVocalHistoryFilterRow() {
   if (!vocalHistoryFilterRowEl) return;
@@ -1131,6 +1152,112 @@ async function loadVocalHistory() {
   renderVocalHistoryList();
 }
 if (vocalHistoryListEl) loadVocalHistory();
+
+function updateVocalLibraryGenerateBtn() {
+  if (!vocalLibraryGenerateBtnEl) return;
+  if (vocalLibrarySelected.size === 0) {
+    vocalLibraryGenerateBtnEl.style.display = 'none';
+  } else {
+    vocalLibraryGenerateBtnEl.style.display = '';
+  }
+}
+
+if (vocalLibrarySelectModeBtnEl) {
+  vocalLibrarySelectModeBtnEl.addEventListener('click', () => {
+    vocalLibrarySelectMode = !vocalLibrarySelectMode;
+    vocalLibrarySelected.clear();
+    vocalLibrarySelectModeBtnEl.textContent = vocalLibrarySelectMode ? '✓ 退出选择' : '📋 选择模式';
+    vocalLibrarySelectModeBtnEl.style.backgroundColor = vocalLibrarySelectMode ? 'rgba(100, 200, 100, 0.5)' : '';
+    updateVocalLibraryGenerateBtn();
+    loadVocalHistory();
+  });
+}
+
+if (vocalLibraryGenerateBtnEl) {
+  vocalLibraryGenerateBtnEl.addEventListener('click', async () => {
+    const selected = vocalHistoryCache.filter(e => vocalLibrarySelected.has(e.id));
+    if (selected.length === 0) return;
+
+    // Extract song names from selections
+    function getSongName(entry) {
+      let name = entry.songName;
+      if (!name && entry.sourceName) name = entry.sourceName?.replace(/\.[^.]*$/, '');
+      if (!name && entry.type === 'conversion' && entry.sourcePath?.includes('htdemucs')) {
+        const parts = entry.sourcePath.split(/[\\/]/);
+        const idx = parts.findIndex(p => p === 'htdemucs');
+        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
+      }
+      if (!name && entry.vocalsPath?.includes('htdemucs')) {
+        const parts = entry.vocalsPath.split(/[\\/]/);
+        const idx = parts.findIndex(p => p === 'htdemucs');
+        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
+      }
+      if (!name && entry.instrumentalPath?.includes('htdemucs')) {
+        const parts = entry.instrumentalPath.split(/[\\/]/);
+        const idx = parts.findIndex(p => p === 'htdemucs');
+        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
+      }
+      return name || '未知歌曲';
+    }
+
+    // Group by song name
+    const bySong = {};
+    for (const e of selected) {
+      const songName = getSongName(e);
+      if (!bySong[songName]) bySong[songName] = [];
+      bySong[songName].push(e);
+    }
+
+    // For each song group, generate mixes
+    const tasks = [];
+    for (const [songName, entries] of Object.entries(bySong)) {
+      const conversions = entries.filter(e => e.type === 'conversion');
+      const separations = entries.filter(e => e.type === 'separation');
+
+      if (conversions.length > 0) {
+        // If there are conversions, mix each with available instrumental
+        for (const conv of conversions) {
+          let instPath = conv.instrumentalPath;
+          if (!instPath && separations.length > 0) {
+            instPath = separations[0].instrumentalPath;
+          }
+          if (!instPath) {
+            alert(`歌曲 "${songName}" 的转换 "${conv.modelName}" 缺少伴奏`);
+            continue;
+          }
+          tasks.push({ vocals: conv.outputPath, instrumental: instPath, label: `${songName} - ${conv.modelName}` });
+        }
+      } else if (separations.length > 1) {
+        // Multiple separations (unusual, but nothing to mix)
+        alert(`歌曲 "${songName}" 只选了伴奏，需要选人声才能生成`);
+      }
+    }
+
+    if (tasks.length === 0) return;
+
+    try {
+      vocalLibraryGenerateBtnEl.disabled = true;
+      vocalLibraryGenerateBtnEl.textContent = `生成中…(${tasks.length})`;
+
+      for (const task of tasks) {
+        await window.dash.mixTracks({ vocalsPath: task.vocals, instrumentalPath: task.instrumental });
+      }
+      alert(`✨ 已生成 ${tasks.length} 个完整翻唱！`);
+      vocalLibrarySelectMode = false;
+      vocalLibrarySelected.clear();
+      vocalLibrarySelectModeBtnEl.textContent = '📋 选择模式';
+      vocalLibrarySelectModeBtnEl.style.backgroundColor = '';
+      updateVocalLibraryGenerateBtn();
+      loadVocalHistory();
+    } catch (err) {
+      console.error('Mix error:', err);
+      alert(`生成失败: ${err.message || err}`);
+    } finally {
+      vocalLibraryGenerateBtnEl.disabled = false;
+      vocalLibraryGenerateBtnEl.textContent = '✨ 生成';
+    }
+  });
+}
 
 for (const btn of navBtns) btn.addEventListener('click', () => showSection(btn.dataset.section));
 
