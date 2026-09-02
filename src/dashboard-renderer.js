@@ -1061,10 +1061,15 @@ function renderVocalHistoryList() {
     return;
   }
 
-  // Group by songName
+  // Group by songName (backwards compatible with old records that lack it)
   const bySong = {};
   for (const entry of filtered) {
-    const songName = entry.songName || entry.sourceName || '未知歌曲';
+    // Try to extract song name from various fields
+    let songName = entry.songName;
+    if (!songName && entry.sourceName) songName = entry.sourceName;
+    if (!songName && entry.sourcePath) songName = entry.sourcePath.split(/[\\/]/).pop()?.replace(/\.[^.]*$/, '') || '未知歌曲';
+    if (!songName && entry.vocalsPath) songName = entry.vocalsPath.split(/[\\/]/).pop()?.replace(/\.[^.]*$/, '') || '未知歌曲';
+    songName = songName || '未知歌曲';
     if (!bySong[songName]) bySong[songName] = [];
     bySong[songName].push(entry);
   }
@@ -5537,6 +5542,50 @@ backupImportBtnEl?.addEventListener('click', async () => {
     backupImportBtnEl.disabled = false;
   }
 });
+
+// --- vocal pipeline: collapsible sections for ①②③④ ──────────────────────
+// Add collapse/expand functionality to vocal steps (①②③④)
+const initVocalSectionCollapses = () => {
+  const vocalSection = document.getElementById('section-vocal');
+  if (!vocalSection) return;
+
+  const stepPanels = vocalSection.querySelectorAll('.panel-block');
+  stepPanels.forEach((panel, idx) => {
+    const h3 = panel.querySelector('h3');
+    if (!h3) return;
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.style.cssText = 'background:none; border:none; cursor:pointer; padding:4px 8px; font-size:14px; opacity:0.6;';
+    toggleBtn.textContent = '▼';
+    toggleBtn.dataset.collapsed = 'false';
+
+    const originalTitle = h3.textContent;
+    h3.style.display = 'flex';
+    h3.style.alignItems = 'center';
+    h3.style.gap = '8px';
+    h3.insertBefore(toggleBtn, h3.firstChild);
+
+    // Hide all except first step by default
+    if (idx > 0) {
+      const allChildren = Array.from(panel.children).slice(1);
+      allChildren.forEach((el) => (el.style.display = 'none'));
+      toggleBtn.textContent = '▶';
+      toggleBtn.dataset.collapsed = 'true';
+    }
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const collapsed = toggleBtn.dataset.collapsed === 'true';
+      const allChildren = Array.from(panel.children).slice(1);
+      allChildren.forEach((el) => {
+        el.style.display = collapsed ? '' : 'none';
+      });
+      toggleBtn.textContent = collapsed ? '▼' : '▶';
+      toggleBtn.dataset.collapsed = collapsed ? 'false' : 'true';
+    });
+  });
+};
+initVocalSectionCollapses();
 
 // --- vocal pipeline: one-click full automation ──────────────────────────
 const vocalFullPipelineHandler = () => {
