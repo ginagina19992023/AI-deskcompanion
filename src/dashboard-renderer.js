@@ -6046,11 +6046,9 @@ const vocalFullPipelineHandler = () => {
 
   // One-click button
   voiceFullPipelineBtnEl.addEventListener('click', async () => {
-    // 已分离人声优先：选了它就把它当输入喂给 fullPipelineVocal。
-    // 主进程那边会照常跑一次 Demucs——对纯人声轨分离是幂等的（伴奏轨近乎
-    // 静音），代价是多等几分钟。真正跳过②需要主进程支持一个
-    // skipSeparation 分支，本次没做。
-    const separatedVocal = voiceFullPipelineUseSeparatedVocalEl?.value || '';
+    const separatedVocalOpt = voiceFullPipelineUseSeparatedVocalEl?.selectedOptions?.[0];
+    const separatedVocal = separatedVocalOpt?.value || '';
+    const separatedInstrumental = separatedVocalOpt?.dataset.instrumental || '';
     const songPath = separatedVocal || voiceFullPipelineSongSelectEl.value;
     const modelPath = selectedVoiceModelPath;
     if (!songPath) {
@@ -6063,7 +6061,9 @@ const vocalFullPipelineHandler = () => {
     }
 
     voiceFullPipelineBtnEl.disabled = true;
-    voiceFullPipelineStatusEl.textContent = '生成中（①②③④）…';
+    // 选了已分离人声就跳过①②，直接从③开始；否则跑完整流程
+    const skippingSeparation = !!separatedVocal;
+    voiceFullPipelineStatusEl.textContent = skippingSeparation ? '生成中（③④）…' : '生成中（①②③④）…';
     resetVocalWorkflowSteps();
     try {
       const result = await window.dash.fullPipelineVocal({
@@ -6075,6 +6075,8 @@ const vocalFullPipelineHandler = () => {
         enhanceStrength: voiceFullPipelineEnhanceEl?.checked
           ? Number(voiceFullPipelineEnhanceStrengthEl?.value ?? 0.6)
           : 0,
+        skipSeparation: skippingSeparation,
+        instrumentalPath: skippingSeparation ? separatedInstrumental : undefined,
       });
 
       if (result.error) {

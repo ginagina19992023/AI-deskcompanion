@@ -1301,48 +1301,56 @@ ipcMain.handle('dashboard:replay-vocal-history-entry', async (_e, { id } = {}) =
 
 // Full-pipeline one-click: transcribe → separate → convert → mix, all at once.
 // Takes audioPath + model params, orchestrates the full ①②③④ flow, returns final mix path.
-ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPath, indexPath, pitchShift, indexRate, enhanceStrength }) => {
+ipcMain.handle('dashboard:full-pipeline-vocal', async (_e, { audioPath, modelPath, indexPath, pitchShift, indexRate, enhanceStrength, skipSeparation, instrumentalPath }) => {
   if (!audioPath || !existsSync(audioPath)) return { error: '音频文件不存在' };
   if (!modelPath || !existsSync(modelPath)) return { error: '模型文件不存在' };
 
   // 面板进度条随各阶段完成逐步点亮；不等整条流程跑完才一次性刷新，
   // CPU 推理动辄几分钟，中途完全没反馈会让人以为卡死了。
+  // skipSeparation 时跳过①②，直接从③开始亮起。
   const sendProgress = (step) => _e.sender.send('dashboard:full-pipeline-progress', step);
-  sendProgress('start');
+  sendProgress(skipSeparation ? 'convert' : 'start');
 
   try {
-    // ① Transcribe (optional for full pipeline, skip if only need ②③④)
-    // ② Separate
-    const sep = await new Promise((resolve) => {
-      const scriptPath = join(root, 'tools', 'vocal-remove.py');
-      const outputDir = join(root, 'data', 'vocal-splits');
-      const songName = getSongName(audioPath);
-      const proc = spawn('python', [scriptPath, audioPath, outputDir, '1'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 600000,
+    let sep;
+    if (skipSeparation) {
+      // 直接用提供的已分离人声和配对的伴奏，跳过 Demucs 分离。
+      sep = { vocals: audioPath, instrumental: instrumentalPath || '' };
+      sendProgress('separate');
+    } else {
+      // ① Transcribe (optional for full pipeline, skip if only need ②③④)
+      // ② Separate
+      sep = await new Promise((resolve) => {
+        const scriptPath = join(root, 'tools', 'vocal-remove.py');
+        const outputDir = join(root, 'data', 'vocal-splits');
+        const songName = getSongName(audioPath);
+        const proc = spawn('python', [scriptPath, audioPath, outputDir, '1'], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 600000,
+        });
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', (d) => { stdout += d.toString(); });
+        proc.stderr.on('data', (d) => { stderr += d.toString(); });
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            try { resolve({ error: JSON.parse(stderr).error }); }
+            catch { resolve({ error: stderr.slice(-200) || `分离失败 (code ${code})` }); }
+            return;
+          }
+          try {
+            const result = JSON.parse(stdout.trim().split('\n').pop());
+            if (result.vocals && result.instrumental) {
+              appendVocalHistory({ type: 'separation', songName, sourcePath: audioPath, vocalsPath: result.vocals, instrumentalPath: result.instrumental });
+              resolve({ vocals: result.vocals, instrumental: result.instrumental });
+            } else resolve({ error: '分离输出错误' });
+          } catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
+        });
+        proc.on('error', (err) => resolve({ error: `分离进程失败: ${err.message}` }));
       });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', (d) => { stdout += d.toString(); });
-      proc.stderr.on('data', (d) => { stderr += d.toString(); });
-      proc.on('close', (code) => {
-        if (code !== 0) {
-          try { resolve({ error: JSON.parse(stderr).error }); }
-          catch { resolve({ error: stderr.slice(-200) || `分离失败 (code ${code})` }); }
-          return;
-        }
-        try {
-          const result = JSON.parse(stdout.trim().split('\n').pop());
-          if (result.vocals && result.instrumental) {
-            appendVocalHistory({ type: 'separation', songName, sourcePath: audioPath, vocalsPath: result.vocals, instrumentalPath: result.instrumental });
-            resolve({ vocals: result.vocals, instrumental: result.instrumental });
-          } else resolve({ error: '分离输出错误' });
-        } catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
-      });
-      proc.on('error', (err) => resolve({ error: `分离进程失败: ${err.message}` }));
-    });
-    if (sep.error) return sep;
-    sendProgress('separate');
+      if (sep.error) return sep;
+      sendProgress('separate');
+    }
 
     // ③ Convert (uses separated vocals)
     const conv = await runVoiceConversion(sep.vocals, modelPath, indexPath, pitchShift, indexRate, sep.instrumental);
