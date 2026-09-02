@@ -52,6 +52,18 @@ const tasksListEl = document.getElementById('tasksList');
 const reportBodyEl = document.getElementById('reportBody');
 const reportDayBtnEl = document.getElementById('reportDayBtn');
 const reportWeekBtnEl = document.getElementById('reportWeekBtn');
+
+// Playback bar and lyrics for singing
+const petPlaybackBarEl = document.getElementById('petPlaybackBar');
+const petPlayPauseBtnEl = document.getElementById('petPlayPauseBtn');
+const petPlaybackProgressEl = document.getElementById('petPlaybackProgress');
+const petPlaybackTimeEl = document.getElementById('petPlaybackTime');
+const petLyricsEl = document.getElementById('petLyrics');
+const petLyricsTextEl = document.getElementById('petLyricsText');
+
+let currentAudio = null;
+let showPlaybackBar = false;
+let showLyrics = false;
 const reportTextEl = document.getElementById('reportText');
 const todoTabHistoryEl = document.getElementById('todoTabHistory');
 const historyBodyEl = document.getElementById('historyBody');
@@ -302,11 +314,42 @@ function playTone(freq, startDelay, durationMs, type = 'sine', gainPeak = 0.15) 
   }
 }
 
-function playCustomSound(url) {
+function updatePlaybackUI() {
+  if (!currentAudio) {
+    petPlaybackBarEl.style.display = 'none';
+    petLyricsEl.style.display = 'none';
+    return;
+  }
+
+  if (showPlaybackBar) petPlaybackBarEl.style.display = '';
+  if (showLyrics) petLyricsEl.style.display = '';
+
+  const percent = currentAudio.duration ? (currentAudio.currentTime / currentAudio.duration) * 100 : 0;
+  petPlaybackProgressEl.style.width = `${percent}%`;
+
+  const minutes = Math.floor(currentAudio.currentTime / 60);
+  const seconds = Math.floor(currentAudio.currentTime % 60);
+  petPlaybackTimeEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+  petPlayPauseBtnEl.textContent = currentAudio.paused ? '▶' : '⏸';
+}
+
+function playCustomSound(url, trackPlayback = false) {
   try {
     const audio = new Audio(url);
     audio.volume = 0.6;
+    if (trackPlayback) {
+      currentAudio = audio;
+      audio.addEventListener('play', updatePlaybackUI);
+      audio.addEventListener('pause', updatePlaybackUI);
+      audio.addEventListener('timeupdate', updatePlaybackUI);
+      audio.addEventListener('ended', () => {
+        currentAudio = null;
+        updatePlaybackUI();
+      });
+    }
     audio.play().catch(() => {});
+    if (trackPlayback) updatePlaybackUI();
     return true;
   } catch {
     return false;
@@ -330,6 +373,19 @@ function playPetSound() {
   if (!soundsEnabled) return;
   if (soundFiles.petUrl && playCustomSound(soundFiles.petUrl)) return;
   playTone(740, 0, 90, 'triangle', 0.1);
+}
+
+// Playback bar control
+if (petPlayPauseBtnEl) {
+  petPlayPauseBtnEl.addEventListener('click', () => {
+    if (!currentAudio) return;
+    if (currentAudio.paused) {
+      currentAudio.play().catch(() => {});
+    } else {
+      currentAudio.pause();
+    }
+    updatePlaybackUI();
+  });
 }
 
 // A real, persistent chat panel (see openChatPanel/closeChatPanel in
