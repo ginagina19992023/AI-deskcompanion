@@ -769,7 +769,7 @@ if (voiceConvertBtnEl) {
 
 // 生成记录 (生成历史) -- past separations/conversions, so replaying one is
 // a click on an already-rendered <audio> instead of re-running Demucs/RVC.
-const vocalHistoryListEl = document.getElementById('vocalHistoryList');
+const vocalHistoryListEl = document.getElementById('vocalHistoryBySong');
 
 // 歌曲库中选中的换声记录（用于一键生成混音）
 let selectedConversionEntry = null;
