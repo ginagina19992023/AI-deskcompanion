@@ -781,23 +781,6 @@ function vocalHistoryRow(entry) {
   card.className = 'card song-card';
   card.id = `vocal-history-${entry.id}`;
 
-  // Selection checkbox (only in select mode)
-  if (vocalLibrarySelectMode && (entry.type === 'conversion' || entry.type === 'separation')) {
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = vocalLibrarySelected.has(entry.id);
-    checkbox.style.marginBottom = '8px';
-    checkbox.addEventListener('change', (e) => {
-      if (e.target.checked) {
-        vocalLibrarySelected.add(entry.id);
-      } else {
-        vocalLibrarySelected.delete(entry.id);
-      }
-      updateVocalLibraryGenerateBtn();
-    });
-    card.appendChild(checkbox);
-  }
-
   const header = document.createElement('div');
   header.style.display = 'flex';
   header.style.justifyContent = 'space-between';
@@ -843,6 +826,25 @@ function vocalHistoryRow(entry) {
     vocalsRow.style.display = 'flex';
     vocalsRow.style.justifyContent = 'space-between';
     vocalsRow.style.alignItems = 'center';
+    vocalsRow.style.gap = '8px';
+
+    if (vocalLibrarySelectMode) {
+      const vocalsCheckbox = document.createElement('input');
+      vocalsCheckbox.type = 'checkbox';
+      const vocalsKey = `${entry.id}:vocals`;
+      vocalsCheckbox.checked = vocalLibrarySelected.has(vocalsKey);
+      vocalsCheckbox.style.cursor = 'pointer';
+      vocalsCheckbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          vocalLibrarySelected.set(vocalsKey, { entryId: entry.id, trackType: 'vocals', entry });
+        } else {
+          vocalLibrarySelected.delete(vocalsKey);
+        }
+        updateVocalLibraryGenerateBtn();
+      });
+      vocalsRow.appendChild(vocalsCheckbox);
+    }
+
     const vocalsLabel = document.createElement('div');
     vocalsLabel.style.fontSize = '11px';
     vocalsLabel.style.opacity = '0.7';
@@ -879,6 +881,25 @@ function vocalHistoryRow(entry) {
     instRow.style.justifyContent = 'space-between';
     instRow.style.alignItems = 'center';
     instRow.style.marginTop = '6px';
+    instRow.style.gap = '8px';
+
+    if (vocalLibrarySelectMode) {
+      const instCheckbox = document.createElement('input');
+      instCheckbox.type = 'checkbox';
+      const instKey = `${entry.id}:instrumental`;
+      instCheckbox.checked = vocalLibrarySelected.has(instKey);
+      instCheckbox.style.cursor = 'pointer';
+      instCheckbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          vocalLibrarySelected.set(instKey, { entryId: entry.id, trackType: 'instrumental', entry });
+        } else {
+          vocalLibrarySelected.delete(instKey);
+        }
+        updateVocalLibraryGenerateBtn();
+      });
+      instRow.appendChild(instCheckbox);
+    }
+
     const instLabel = document.createElement('div');
     instLabel.style.fontSize = '11px';
     instLabel.style.opacity = '0.7';
@@ -905,6 +926,29 @@ function vocalHistoryRow(entry) {
     instAudio.controls = true;
     instAudio.src = entry.instrumentalUrl;
     card.appendChild(instAudio);
+  } else if (entry.type === 'conversion') {
+    if (vocalLibrarySelectMode) {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      const convKey = `${entry.id}:conversion`;
+      checkbox.checked = vocalLibrarySelected.has(convKey);
+      checkbox.style.marginBottom = '8px';
+      checkbox.style.cursor = 'pointer';
+      checkbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          vocalLibrarySelected.set(convKey, { entryId: entry.id, trackType: 'conversion', entry });
+        } else {
+          vocalLibrarySelected.delete(convKey);
+        }
+        updateVocalLibraryGenerateBtn();
+      });
+      card.appendChild(checkbox);
+    }
+
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.src = entry.outputUrl;
+    card.appendChild(audio);
   } else {
     const audio = document.createElement('audio');
     audio.controls = true;
@@ -1041,7 +1085,7 @@ const VOCAL_HISTORY_FILTERS = [
 let vocalHistoryFilter = 'all';
 let vocalHistoryCache = [];
 let vocalLibrarySelectMode = false;
-const vocalLibrarySelected = new Set();
+const vocalLibrarySelected = new Map(); // key: "id:type" (e.g., "vh-123:vocals" or "vh-456:conversion")
 
 function renderVocalHistoryFilterRow() {
   if (!vocalHistoryFilterRowEl) return;
@@ -1165,7 +1209,9 @@ function updateVocalLibraryGenerateBtn() {
 if (vocalLibrarySelectModeBtnEl) {
   vocalLibrarySelectModeBtnEl.addEventListener('click', () => {
     vocalLibrarySelectMode = !vocalLibrarySelectMode;
-    vocalLibrarySelected.clear();
+    if (!vocalLibrarySelectMode) {
+      vocalLibrarySelected.clear();
+    }
     vocalLibrarySelectModeBtnEl.textContent = vocalLibrarySelectMode ? '✓ 退出选择' : '📋 选择模式';
     vocalLibrarySelectModeBtnEl.style.backgroundColor = vocalLibrarySelectMode ? 'rgba(100, 200, 100, 0.5)' : '';
     updateVocalLibraryGenerateBtn();
@@ -1175,62 +1221,42 @@ if (vocalLibrarySelectModeBtnEl) {
 
 if (vocalLibraryGenerateBtnEl) {
   vocalLibraryGenerateBtnEl.addEventListener('click', async () => {
-    const selected = vocalHistoryCache.filter(e => vocalLibrarySelected.has(e.id));
+    const selected = Array.from(vocalLibrarySelected.values());
     if (selected.length === 0) return;
 
-    // Extract song names from selections
-    function getSongName(entry) {
-      let name = entry.songName;
-      if (!name && entry.sourceName) name = entry.sourceName?.replace(/\.[^.]*$/, '');
-      if (!name && entry.type === 'conversion' && entry.sourcePath?.includes('htdemucs')) {
-        const parts = entry.sourcePath.split(/[\\/]/);
-        const idx = parts.findIndex(p => p === 'htdemucs');
-        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
-      }
-      if (!name && entry.vocalsPath?.includes('htdemucs')) {
-        const parts = entry.vocalsPath.split(/[\\/]/);
-        const idx = parts.findIndex(p => p === 'htdemucs');
-        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
-      }
-      if (!name && entry.instrumentalPath?.includes('htdemucs')) {
-        const parts = entry.instrumentalPath.split(/[\\/]/);
-        const idx = parts.findIndex(p => p === 'htdemucs');
-        if (idx >= 0 && idx + 1 < parts.length) name = parts[idx + 1];
-      }
-      return name || '未知歌曲';
-    }
+    // Separate by track type
+    const conversions = selected.filter(s => s.trackType === 'conversion').map(s => s.entry);
+    const vocals = selected.filter(s => s.trackType === 'vocals').map(s => s.entry);
+    const instrumentals = selected.filter(s => s.trackType === 'instrumental').map(s => s.entry);
 
-    // Group by song name
-    const bySong = {};
-    for (const e of selected) {
-      const songName = getSongName(e);
-      if (!bySong[songName]) bySong[songName] = [];
-      bySong[songName].push(e);
-    }
-
-    // For each song group, generate mixes
     const tasks = [];
-    for (const [songName, entries] of Object.entries(bySong)) {
-      const conversions = entries.filter(e => e.type === 'conversion');
-      const separations = entries.filter(e => e.type === 'separation');
 
-      if (conversions.length > 0) {
-        // If there are conversions, mix each with available instrumental
-        for (const conv of conversions) {
-          let instPath = conv.instrumentalPath;
-          if (!instPath && separations.length > 0) {
-            instPath = separations[0].instrumentalPath;
-          }
-          if (!instPath) {
-            alert(`歌曲 "${songName}" 的转换 "${conv.modelName}" 缺少伴奏`);
-            continue;
-          }
-          tasks.push({ vocals: conv.outputPath, instrumental: instPath, label: `${songName} - ${conv.modelName}` });
+    // Case 1: Selected conversions (vocals) → pair each with instrumental (prioritize selected, then entry's own)
+    if (conversions.length > 0) {
+      for (const conv of conversions) {
+        let instPath = conv.instrumentalPath;
+        if (!instPath && instrumentals.length > 0) {
+          instPath = instrumentals[0].instrumentalPath;
         }
-      } else if (separations.length > 1) {
-        // Multiple separations (unusual, but nothing to mix)
-        alert(`歌曲 "${songName}" 只选了伴奏，需要选人声才能生成`);
+        if (!instPath) {
+          alert(`转换 "${conv.modelName}" 缺少伴奏，请选择一条伴奏轨`);
+          continue;
+        }
+        tasks.push({ vocals: conv.outputPath, instrumental: instPath, label: `${conv.modelName}` });
       }
+    }
+    // Case 2: Selected separation vocals + selected separation instrumentals → mix them
+    else if (vocals.length > 0 && instrumentals.length > 0) {
+      for (const vocal of vocals) {
+        for (const inst of instrumentals) {
+          tasks.push({ vocals: vocal.vocalsPath, instrumental: inst.instrumentalPath, label: '人声+伴奏' });
+        }
+      }
+    }
+    // Case 3: Only vocals or only instrumentals → error
+    else if (vocals.length > 0 || instrumentals.length > 0) {
+      alert('需要同时选择人声和伴奏才能混音');
+      return;
     }
 
     if (tasks.length === 0) return;
