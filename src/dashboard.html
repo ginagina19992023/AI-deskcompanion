@@ -624,6 +624,27 @@
       <div id="claudeUsageSessions"></div>
       <div id="claudeUsageLimits" style="margin-top:14px;"></div>
     </div>
+    <div class="panel-block">
+      <h3>💾 备份与迁移</h3>
+      <p class="hint" style="margin-top:0;">设置(config.json)和数据(聊天记录、记忆、待办、演唱室历史等)都只存在这台电脑上，不会跟着 git 走。换电脑前先导出一份备份，装到新电脑后导入即可原样恢复。</p>
+      <div class="field-row" style="align-items:flex-start; gap:24px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:260px;">
+          <div style="font-weight:600; margin-bottom:6px;">导出备份</div>
+          <label class="hint" style="display:flex; align-items:center; gap:6px; margin:2px 0;"><input type="checkbox" id="backupIncludeScreenTips"> 包含截屏记录截图(体积较大，几百 MB)</label>
+          <label class="hint" style="display:flex; align-items:center; gap:6px; margin:2px 0;"><input type="checkbox" id="backupIncludeVocalSplits"> 包含演唱室分离/换声音频(体积较大)</label>
+          <label class="hint" style="display:flex; align-items:center; gap:6px; margin:2px 0;"><input type="checkbox" id="backupIncludeVoiceSamples"> 包含语音样本</label>
+          <label class="hint" style="display:flex; align-items:center; gap:6px; margin:2px 0;"><input type="checkbox" id="backupIncludeTestSongs"> 包含测试歌曲</label>
+          <button id="backupExportBtn" class="btn" style="margin-top:10px;">导出为 zip</button>
+          <div id="backupExportStatus" class="hint" style="margin-top:6px;"></div>
+        </div>
+        <div style="flex:1; min-width:260px;">
+          <div style="font-weight:600; margin-bottom:6px;">导入备份</div>
+          <p class="hint" style="margin:2px 0;">选一个之前导出的 zip 文件。已存在的同名文件会先重命名备份，不会直接覆盖丢失。导入后需要重启应用生效。</p>
+          <button id="backupImportBtn" class="btn">从 zip 导入</button>
+          <div id="backupImportStatus" class="hint" style="margin-top:6px;"></div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section class="section" id="section-chat">

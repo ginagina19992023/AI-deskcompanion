@@ -1268,6 +1268,92 @@ ipcMain.handle('dashboard:replay-vocal-history-entry', async (_e, { id } = {}) =
   return { error: '这种记录类型不支持重新生成' };
 });
 
+// Machine-migration backup: bundles config.json + data/ (both deliberately
+// .gitignore'd -- they're per-machine settings/history, not code) into one
+// zip via tools/backup-transfer.ps1, so switching computers doesn't mean
+// losing chat history, todos, memory, or the vocal-history library. Large
+// media folders (screenshots, converted songs) are opt-in checkboxes since
+// they can run into the hundreds of MB.
+ipcMain.handle('dashboard:export-backup', async (_e, options = {}) => {
+  const result = await dialog.showSaveDialog({
+    title: '导出备份',
+    defaultPath: join(app.getPath('documents'), `ai-deskcompanion-backup-${Date.now()}.zip`),
+    filters: [{ name: '备份文件', extensions: ['zip'] }],
+  });
+  if (result.canceled || !result.filePath) return { cancelled: true };
+
+  return new Promise((resolve) => {
+    const scriptPath = join(root, 'tools', 'backup-transfer.ps1');
+    const args = [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+      '-Mode', 'Export', '-RootDir', root, '-DestZip', result.filePath,
+    ];
+    if (options.includeScreenTips) args.push('-IncludeScreenTips');
+    if (options.includeVocalSplits) args.push('-IncludeVocalSplits');
+    if (options.includeVoiceSamples) args.push('-IncludeVoiceSamples');
+    if (options.includeTestSongs) args.push('-IncludeTestSongs');
+
+    const proc = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        try { resolve({ error: JSON.parse(stderr).error }); }
+        catch { resolve({ error: stderr.slice(-300) || `导出失败 (code ${code})` }); }
+        return;
+      }
+      try { resolve(JSON.parse(stdout.trim())); }
+      catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
+    });
+    proc.on('error', (err) => resolve({ error: `启动导出进程失败: ${err.message}` }));
+  });
+});
+
+ipcMain.handle('dashboard:import-backup', async () => {
+  const picked = await dialog.showOpenDialog({
+    title: '选择备份文件',
+    properties: ['openFile'],
+    filters: [{ name: '备份文件', extensions: ['zip'] }],
+  });
+  if (picked.canceled || !picked.filePaths.length) return { cancelled: true };
+
+  const confirm = await dialog.showMessageBox(dashboardWin || win, {
+    type: 'warning',
+    buttons: ['取消', '导入'],
+    defaultId: 0,
+    cancelId: 0,
+    title: '确认导入备份',
+    message: '导入会覆盖当前的设置和数据',
+    detail: '现有的 config.json 和 data/ 里同名的文件会先被重命名为 .backup 备份，不会直接删除，但建议先确认这台电脑上没有更新的数据。导入完成后需要重启应用才能生效。',
+  });
+  if (confirm.response !== 1) return { cancelled: true };
+
+  return new Promise((resolve) => {
+    const scriptPath = join(root, 'tools', 'backup-transfer.ps1');
+    const args = [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+      '-Mode', 'Import', '-RootDir', root, '-SrcZip', picked.filePaths[0],
+    ];
+    const proc = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        try { resolve({ error: JSON.parse(stderr).error }); }
+        catch { resolve({ error: stderr.slice(-300) || `导入失败 (code ${code})` }); }
+        return;
+      }
+      try { resolve(JSON.parse(stdout.trim())); }
+      catch (err) { resolve({ error: `解析结果失败: ${err.message}` }); }
+    });
+    proc.on('error', (err) => resolve({ error: `启动导入进程失败: ${err.message}` }));
+  });
+});
+
 function startVoiceStt() {
   if (voiceSttWatcher) return;
   const onTranscript = (text) => {

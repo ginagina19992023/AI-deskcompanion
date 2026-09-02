@@ -5443,6 +5443,56 @@ function showMemoryView(view) {
 memoryViewListBtnEl.addEventListener('click', () => showMemoryView('list'));
 memoryViewGraphBtnEl.addEventListener('click', () => showMemoryView('graph'));
 
+// --- backup / migration ---------------------------------------------------
+// config.json + data/ are both .gitignore'd on purpose (per-machine, not
+// code), so moving to a new computer needs its own export/import path --
+// see tools/backup-transfer.ps1 for the actual copy+zip work; this just
+// collects the checkbox options and reports the result.
+const backupExportBtnEl = document.getElementById('backupExportBtn');
+const backupImportBtnEl = document.getElementById('backupImportBtn');
+const backupExportStatusEl = document.getElementById('backupExportStatus');
+const backupImportStatusEl = document.getElementById('backupImportStatus');
+
+backupExportBtnEl?.addEventListener('click', async () => {
+  backupExportBtnEl.disabled = true;
+  backupExportStatusEl.textContent = '导出中，包含大文件夹时可能需要一两分钟…';
+  try {
+    const result = await window.dash.exportBackup({
+      includeScreenTips: document.getElementById('backupIncludeScreenTips')?.checked,
+      includeVocalSplits: document.getElementById('backupIncludeVocalSplits')?.checked,
+      includeVoiceSamples: document.getElementById('backupIncludeVoiceSamples')?.checked,
+      includeTestSongs: document.getElementById('backupIncludeTestSongs')?.checked,
+    });
+    if (result.cancelled) {
+      backupExportStatusEl.textContent = '';
+    } else if (result.error) {
+      backupExportStatusEl.textContent = `✗ ${result.error}`;
+    } else {
+      const mb = (result.sizeBytes / (1024 * 1024)).toFixed(1);
+      backupExportStatusEl.textContent = `✓ 已导出到 ${result.output}（${mb} MB）`;
+    }
+  } finally {
+    backupExportBtnEl.disabled = false;
+  }
+});
+
+backupImportBtnEl?.addEventListener('click', async () => {
+  backupImportBtnEl.disabled = true;
+  backupImportStatusEl.textContent = '导入中…';
+  try {
+    const result = await window.dash.importBackup();
+    if (result.cancelled) {
+      backupImportStatusEl.textContent = '';
+    } else if (result.error) {
+      backupImportStatusEl.textContent = `✗ ${result.error}`;
+    } else {
+      backupImportStatusEl.textContent = `✓ 已恢复 ${result.restored.length} 项，请重启应用使设置生效${result.backups.length ? `（原有文件已备份为 .backup 后缀，共 ${result.backups.length} 项）` : ''}`;
+    }
+  } finally {
+    backupImportBtnEl.disabled = false;
+  }
+});
+
 // --- initial load --------------------------------------------------------
 (async () => {
   const data = await window.dash.getData();
